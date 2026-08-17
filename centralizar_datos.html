@@ -1,0 +1,2277 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="frame-ancestors https://sites.google.com">
+<title>Centralizar Datos CIE</title>
+<style>
+:root {
+  --cie-primary: #1a73e8;
+  --cie-success: #34a853;
+  --cie-warning: #f9ab00;
+  --cie-danger:  #ea4335;
+  --cie-info:    #1967d2;
+  --cie-bg:      #fafbfc;
+  --cie-border:  #e8eaed;
+  --cie-muted:   #6b7280;
+  --cie-text:    #1f2937;
+  --cie-card-radius: 12px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--cie-bg); color: var(--cie-text); }
+#root { padding: 24px; max-width: 1200px; margin: 0 auto; }
+.cie-hbox { display: flex; align-items: center; gap: 8px; flex-flow: row wrap; }
+.cie-vbox { display: flex; flex-direction: column; gap: 8px; }
+.cie-card { border: 1px solid var(--cie-border); border-radius: var(--cie-card-radius); padding: 20px; margin: 8px 0 16px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.cie-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--cie-border); background: #fff; color: var(--cie-text); font-weight: 600; cursor: pointer; }
+.cie-btn:hover:not(:disabled) { background: #f5f5f5; }
+.cie-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cie-btn--primary { background: var(--cie-primary); color: #fff; border-color: var(--cie-primary); }
+.cie-btn--success { background: var(--cie-success); color: #fff; border-color: var(--cie-success); }
+.cie-btn--warning { background: var(--cie-warning); color: #fff; border-color: var(--cie-warning); }
+.cie-btn--info    { background: var(--cie-info);    color: #fff; border-color: var(--cie-info); }
+.cie-btn--danger  { background: var(--cie-danger);  color: #fff; border-color: var(--cie-danger); }
+.cie-input, .cie-select, .cie-textarea { padding: 8px 12px; border: 1px solid var(--cie-border); border-radius: 8px; font: inherit; }
+.cie-input { width: 100%; }
+.cie-input--small { width: 130px; }
+.cie-textarea { width: 100%; min-height: 100px; resize: vertical; }
+.cie-select { width: 600px; max-width: 100%; }
+.cie-status { font-size: 13px; }
+.cie-status--ok    { color: var(--cie-success); }
+.cie-status--warn  { color: var(--cie-warning); }
+.cie-status--err   { color: var(--cie-danger);  }
+.cie-status--off   { color: var(--cie-muted);   }
+.cie-output { margin: 8px 0; font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 13px; }
+.cie-wrap { font-family: 'Segoe UI', 'Noto Sans', sans-serif; color: #1f2937; }
+.cie-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 10px 0 14px; }
+.cie-card-inner { background: linear-gradient(180deg, #fff 0%, #f8fbff 100%); border: 1px solid #dbeafe; border-radius: 12px; padding: 10px 12px; }
+.cie-label { font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.06em; }
+.cie-value { font-size: 14px; font-weight: 600; margin-top: 3px; word-break: break-word; }
+.cie-title { font-size: 16px; font-weight: 700; color: #0f172a; margin: 4px 0 8px; }
+.cie-subtitle { font-size: 13px; font-weight: 700; color: #1d4ed8; margin: 14px 0 6px; }
+.cie-scroll { overflow-x: auto; max-width: 100%; border: 1px solid #dbeafe; border-radius: 10px; background: #fff; }
+.cie-table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: 12px; }
+.cie-table th { background: #eff6ff; color: #1e3a8a; text-align: left; padding: 8px; border-bottom: 1px solid #bfdbfe; white-space: nowrap; }
+.cie-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; white-space: normal; }
+.cie-table tbody tr:nth-child(even) { background: #f8fafc; }
+.cie-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.cie-badge--ok   { background: #dcfce7; color: #166534; }
+.cie-badge--warn { background: #fef3c7; color: #92400e; }
+.cie-badge--no   { background: #e5e7eb; color: #374151; }
+.cie-muted { color: #6b7280; }
+.cie-empty { padding: 10px; border: 1px dashed #93c5fd; border-radius: 8px; color: #334155; background: #f8fbff; }
+.cie-link { color: #1d4ed8; text-decoration: none; font-weight: 600; }
+.cie-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div id="root">
+  <h2>📊 Sistema de Gestión de Informes CIE</h2>
+  <p>Consolidación de informes de regiones</p>
+
+  <section id="login-panel" class="cie-card cie-login">
+    <h3>🔐 Conexión a Google</h3>
+    <p>Conecte su cuenta para acceder a Google Sheets y Drive</p>
+    <div class="cie-hbox">
+      <button id="btn-conectar" class="cie-btn cie-btn--primary">🔌 Conectar</button>
+      <span id="login-status" class="cie-status cie-status--off">⚪ No conectado</span>
+    </div>
+    <div id="login-output" class="cie-output"></div>
+    <div id="iframe-warning" style="display:none" class="cie-card">
+      <p>⚠️ Si el boton Conectar no abre una ventana de login, abra esta pagina en una nueva pestana:</p>
+      <button id="btn-new-tab" class="cie-btn cie-btn--info">🔗 Abrir en nueva pestana</button>
+    </div>
+  </section>
+
+  <p>Configure el batch y, si lo necesita, use <b>Start at</b> para comenzar desde una posicion especifica.</p>
+
+  <div class="cie-hbox">
+    <label>Tamaño de lote <input type="number" id="int-batch-size" class="cie-input cie-input--small" value="100" min="1"></label>
+    <label>Empezar en <input type="number" id="int-start-at" class="cie-input cie-input--small" value="0" min="0"></label>
+    <label>Región
+      <select id="select-region-filtro" class="cie-select" style="width: 220px;">
+        <option value="__TODAS__">Todas</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="cie-hbox" style="margin-top:8px;">
+    <label>Delay entre llamadas (s) <input type="number" id="input-api-delay" class="cie-input cie-input--small" value="1.5" min="0.1" step="0.1" max="60"></label>
+    <span id="delay-rate-info" class="cie-status cie-status--off" style="margin-left:8px;"></span>
+    <button id="btn-leer-sheets" class="cie-btn cie-btn--info" disabled>📖 Leer Informes CIE</button>
+    <button id="btn-pausar-batch" class="cie-btn cie-btn--warning" disabled>⏸️ Pausar</button>
+    <button id="btn-reconectar" class="cie-btn cie-btn--danger" style="display:none;">🔌 Reconectar</button>
+  </div>
+
+  <div id="progreso-panel" class="cie-card" style="margin-top:12px;">
+    <h4 style="margin:0 0 6px 0;">📍 Progreso de la corrida</h4>
+    <div id="progreso-info" class="cie-status">Sin progreso registrado.</div>
+    <div class="cie-hbox" style="margin-top:8px;">
+    <button id="btn-reanudar" class="cie-btn cie-btn--success" disabled>▶️ Reanudar desde último</button>
+    <button id="btn-reiniciar-contador" class="cie-btn cie-btn--danger" disabled>🔄 Reiniciar contador</button>
+    <button id="btn-recuperar-batch" class="cie-btn cie-btn--info" style="display:none;">♻️ Recuperar batch pendiente</button>
+    </div>
+    <div id="batch-pendiente-info" class="cie-status cie-status--warn" style="margin-top:6px; display:none;"></div>
+  </div>
+
+  <hr>
+
+  <div id="output-area" class="cie-output"></div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// =============================================================================
+// CONFIGURACION GLOBAL
+// =============================================================================
+const GOOGLE_CLIENT_ID = "950842522264-drkmot5s3h7t8718b9trvac05dv3qu83.apps.googleusercontent.com";
+const BUILD_TIMESTAMP = "2026-06-01T17:34:06-04:00";
+
+const SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/script.projects',
+  'https://www.googleapis.com/auth/gmail.send'
+].join(' ');
+
+const CONFIG_GLOBAL = {
+  CARPETA_CENTRAL_ID: '178dLaHh6JJ6WeQBnOkWkYeS7MsYC6QJB',
+  CARPETA_REGIONES_ID: '1AzAdUQTs0HCDxBH7o8b1jUwyqMVK6-B5',
+  API_DELAY: 1.5,
+};
+
+const CARPETA_CENTRAL_ID = CONFIG_GLOBAL.CARPETA_CENTRAL_ID;
+const CARPETA_REGIONES_ID = CONFIG_GLOBAL.CARPETA_REGIONES_ID;
+const NOMBRE_MAESTRO = 'CIE_Datos_Maestros';
+
+const CONFIG_IDS = {
+  FOLDER_ID: CARPETA_CENTRAL_ID,
+  REGIONES_FOLDER_ID: CARPETA_REGIONES_ID,
+  MAESTRO_ID: null,
+  API_TRACE_SHEET_ID: null,
+};
+
+const CONFIG_NAMES = {
+  FOLDER_ID: 'central',
+  REGIONES_FOLDER_ID: 'regiones',
+  MAESTRO_ID: 'CIE_Datos_Maestros',
+  API_TRACE_FILE_ID: 'api_trace_informes_cie',
+};
+
+let configResuelta = false;
+
+const PROYECTOS_CIE = {
+  "CPE 2011": { nombre_completo: "Conectividad para la Educación 2011", descripcion: "Que los establecimientos educacionales cuenten y/o incrementen su conectividad a internet, de forma gratuita, para su uso educativo.", fecha: "A partir del año 2011 a la fecha.", beneficios: ["Conectividad", "Materiales"], icono: "🌐", color: "#1a73e8" },
+  "CPE 2030": { nombre_completo: "Conectividad para la Educación 2030", descripcion: "Entregar acceso a internet gratuito a los establecimientos educacionales, como apoyo al proceso educativo y administrativo.", fecha: "A partir del año 2020 a la fecha.", beneficios: ["Conectividad", "Materiales"], icono: "📡", color: "#34a853" },
+  "AC 2022": { nombre_completo: "Aulas Conectadas 2022", descripcion: "Llevar a los establecimientos a un nuevo estándar de acceso a internet en todas las aulas, para potenciar el aprendizaje con uso de recursos en línea.", fecha: "Segundo semestre año 2022 a la fecha.", beneficios: ["Infraestructura", "Conectividad", "Materiales", "Asesoría"], icono: "🏫", color: "#ea4335" },
+  "AC 2022 - 2da": { nombre_completo: "Aulas Conectadas 2022 - Segunda Convocatoria", descripcion: "Asesorar a los sostenedores y sus establecimientos para que alcancen un estándar de infraestructura de red de datos en las aulas.", fecha: "Segundo semestre año 2022 a la fecha.", beneficios: ["Materiales", "Asesoría"], icono: "🎓", color: "#ff6d01" },
+  "REAC RM": { nombre_completo: "Equipos Reacondicionados y Educación en Economía Circular 2023", descripcion: "Entregar equipamiento computacional reacondicionado y entrenamiento en economía circular.", fecha: "Segundo semestre año 2023.", beneficios: ["Infraestructura", "Materiales"], icono: "🖥️", color: "#9c27b0" },
+  "KIT REV": { nombre_completo: "Kit Tecnológico para la Revinculación Educativa 2023", descripcion: "Entregar a los establecimientos que atienden a personas jóvenes y adultas, equipamiento TIC para enriquecer las experiencias de aprendizaje personalizado.", fecha: "Segundo semestre año 2023.", beneficios: ["Infraestructura", "Materiales"], icono: "🔄", color: "#00bcd4" },
+  "KIT TRANSF": { nombre_completo: "Kit Tecnológico para la Transformación Educativa 2023", descripcion: "Entregar a los establecimientos equipamiento TIC para enriquecer y potenciar experiencias de aprendizaje personalizado de acuerdo con sus prioridades y/o necesidades.", fecha: "Segundo semestre año 2023.", beneficios: ["Infraestructura", "Materiales"], icono: "🚀", color: "#607d8b" },
+  "A+S": { nombre_completo: "Aprendizaje + Servicio: Innovar para Transformar 2023", descripcion: "Fortalecer las capacidades de innovación de la comunidad educativa a través de experiencias con enfoque pedagógico de Aprendizaje + Servicio.", fecha: "Segundo semestre año 2023.", beneficios: ["Formación", "Materiales"], icono: "🙌", color: "#e91e63" },
+  "PDC 2024": { nombre_completo: "Protagonistas del Cambio: Formación y Tecnología para la Reactivación Educativa 2024", descripcion: "Fortalecer las capacidades de desarrollar proyectos de innovación en equipos pedagógicos, a través de formación, acompañamiento y entrega de equipamiento.", fecha: "Segundo semestre año 2024.", beneficios: ["Infraestructura", "Formación", "Materiales"], icono: "🌟", color: "#795548" },
+  "TDA 2025": { nombre_completo: "Tecnologías Digitales en Acción (TDA) 2025", descripcion: "Fortalecer el trabajo entre las y los docentes de la asignatura de Tecnología y las personas de la coordinación informática, para integrar pedagógicamente las tecnologías digitales.", fecha: "Segundo semestre año 2025.", beneficios: ["Formación", "Materiales"], icono: "💻", color: "#fbbc04" }
+};
+
+const OPCIONES_USO = [
+  "Seleccione...", "Nunca", "Casi Nunca (Menos de 1 vez al mes)",
+  "Ocasionalmente (1 o 2 veces al mes)", "Comúnmente (1 o 2 veces a la semana)",
+  "Casi siempre (3 o más veces a la semana)"
+];
+
+function generarColumnasFormulario() {
+  const columnas = [];
+  columnas.push('Sostenedor_Institucion', 'Sostenedor_RUT', 'Sostenedor_Correo', 'Sostenedor_Region');
+  columnas.push('Convenio_REX', 'Convenio_Fecha', 'Convenio_Cantidad_Escuelas');
+  for (const [codigo, info] of Object.entries(PROYECTOS_CIE)) {
+    columnas.push(`${codigo}_Nota`);
+    columnas.push(`${codigo}_Pregunta_Respuesta`);
+    columnas.push(`${codigo}_Escuelas_Participantes`);
+    for (const beneficio of info.beneficios) {
+      columnas.push(`${codigo}_${beneficio.replace(/ /g, '_')}_Frecuencia`);
+    }
+    columnas.push(`${codigo}_Comentarios`);
+  }
+  columnas.push('Comentarios_Finales_1', 'Comentarios_Finales_2', 'Comentarios_Finales_3');
+  columnas.push('Checkbox_Envio', 'Fecha_Envio', 'Estado_Formulario');
+  return columnas;
+}
+
+const COLUMNAS_FORMULARIO = generarColumnasFormulario();
+
+const COLUMNAS_METADATA = [
+  "ID_Registro", "ID_Convenio_Archivo", "Fecha_Extraccion", "Carpeta_Origen", "URL_Sheet",
+  "Hoja_Origen", "Numero_Observacion", "Fila_Valida", "Estado_Registro",
+  "Observaciones_Sistema", "Version"
+];
+
+function obtenerEncabezadosMaestro() {
+  return [...COLUMNAS_METADATA, ...COLUMNAS_FORMULARIO];
+}
+
+const PLACEHOLDER_PROYECTO_NO_EXISTE = "NO_EXISTE_EL_PROYECTO";
+
+// =============================================================================
+// DOM REFERENCES
+// =============================================================================
+const btnConectar = document.getElementById('btn-conectar');
+const loginStatus = document.getElementById('login-status');
+const loginOutput = document.getElementById('login-output');
+const btnLeerSheets = document.getElementById('btn-leer-sheets');
+const intBatchSize = document.getElementById('int-batch-size');
+const intStartAt = document.getElementById('int-start-at');
+const inputApiDelay = document.getElementById('input-api-delay');
+const delayRateInfo = document.getElementById('delay-rate-info');
+const selectRegionFiltro = document.getElementById('select-region-filtro');
+const btnPausarBatch = document.getElementById('btn-pausar-batch');
+const btnReconectar = document.getElementById('btn-reconectar');
+const progresoInfo = document.getElementById('progreso-info');
+const btnReanudar = document.getElementById('btn-reanudar');
+const btnReiniciarContador = document.getElementById('btn-reiniciar-contador');
+const outputArea = document.getElementById('output-area');
+
+// =============================================================================
+// APP STATE
+// =============================================================================
+const appState = {
+  spreadsheetMaestro: null,
+  maestroId: null,
+  hojaMaestra: null,
+  batchEnCurso: false,
+  batchPausado: false,
+  reanudarEsperado: false,
+  errorFatal: false,
+  regionesDisponibles: [],
+};
+
+const DELAY_DEFAULT = 1.5;
+const DELAY_MIN = 0.1;
+const DELAY_MAX = 60;
+const LS_KEYS = {
+  API_DELAY: 'cie_cent_api_delay',
+  TOKEN: 'cie_cent_access_token_persist',
+  PROGRESSO: 'cie_cent_progreso',
+  REGION_FILTRO: 'cie_cent_region_filtro',
+  BATCH_PENDIENTE: 'cie_cent_batch_pendiente',
+};
+
+function obtenerDelaySegundos() {
+  let v = parseFloat(inputApiDelay.value);
+  if (!isFinite(v) || isNaN(v)) v = DELAY_DEFAULT;
+  v = Math.max(DELAY_MIN, Math.min(DELAY_MAX, v));
+  return v;
+}
+
+function obtenerDelayMs() {
+  return Math.round(obtenerDelaySegundos() * 1000);
+}
+
+function actualizarInfoDelay() {
+  const s = obtenerDelaySegundos();
+  const rpm = (60 / s).toFixed(1);
+  delayRateInfo.textContent = `≈ ${rpm} req/min (cuota Sheets: 60/min/usuario, 300/min/proyecto)`;
+  delayRateInfo.className = s < 1.0 ? 'cie-status cie-status--warn' : 'cie-status cie-status--ok';
+}
+
+// =============================================================================
+// AUTH (GIS)
+// =============================================================================
+let tokenClient = null;
+let accessToken = null;
+let tokenExpiresAt = 0;
+const TOKEN_TTL_MS = 60 * 60 * 1000;
+const TOKEN_RENEW_MARGIN_MS = 2 * 60 * 1000;
+const TOKEN_STORAGE_KEY = 'cie_access_token';
+const TOKEN_PERSIST_KEY = LS_KEYS.TOKEN;
+
+function guardarTokenPersistente() {
+  try {
+    const stored = { accessToken, tokenExpiresAt };
+    localStorage.setItem(TOKEN_PERSIST_KEY, JSON.stringify(stored));
+  } catch (e) { console.warn('No se pudo persistir token en localStorage', e); }
+}
+
+function cargarTokenPersistente() {
+  try {
+    const raw = localStorage.getItem(TOKEN_PERSIST_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.accessToken || !parsed.tokenExpiresAt) return null;
+    if (Date.now() >= parsed.tokenExpiresAt) {
+      localStorage.removeItem(TOKEN_PERSIST_KEY);
+      return null;
+    }
+    return parsed;
+  } catch (e) { return null; }
+}
+
+function initGis() {
+  return new Promise((resolve) => {
+    if (typeof google === 'undefined' || typeof google.accounts === 'undefined') {
+      setTimeout(() => resolve(initGis()), 200);
+      return;
+    }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: SCOPES,
+      callback: '',
+      error_callback: (err) => console.warn('GIS error', err)
+    });
+    resolve();
+  });
+}
+
+function requestToken(interactive) {
+  return new Promise((resolve, reject) => {
+    if (!tokenClient) {
+      initGis().then(() => requestToken(interactive).then(resolve, reject));
+      return;
+    }
+    tokenClient.callback = (resp) => {
+      if (resp.error) return reject(resp);
+      accessToken = resp.access_token;
+      tokenExpiresAt = Date.now() + (resp.expires_in * 1000) - 60000;
+      try { sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ accessToken, tokenExpiresAt })); } catch (e) {}
+      guardarTokenPersistente();
+      resolve(resp);
+    };
+    tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+  });
+}
+
+async function renovarTokenSilencioso() {
+  try {
+    if (!tokenClient) await initGis();
+    await requestToken(false);
+    return true;
+  } catch (e) {
+    console.warn('Renovacion silenciosa fallo', e);
+    return false;
+  }
+}
+
+async function ensureToken({ interactive = false } = {}) {
+  if (accessToken && Date.now() < tokenExpiresAt) {
+    if (tokenExpiresAt - Date.now() < TOKEN_RENEW_MARGIN_MS) {
+      renovarTokenSilencioso().catch(() => {});
+    }
+    return accessToken;
+  }
+  const stored = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Date.now() < parsed.tokenExpiresAt) {
+        accessToken = parsed.accessToken;
+        tokenExpiresAt = parsed.tokenExpiresAt;
+        return accessToken;
+      }
+    } catch (e) {}
+  }
+  const persist = cargarTokenPersistente();
+  if (persist) {
+    accessToken = persist.accessToken;
+    tokenExpiresAt = persist.tokenExpiresAt;
+    return accessToken;
+  }
+  if (!interactive) throw new Error('No hay token valido. Pulse Reconectar.');
+  await requestToken(true);
+  return accessToken;
+}
+
+function setLoginStatus(cls, msg) {
+  loginStatus.className = 'cie-status cie-status--' + cls;
+  loginStatus.textContent = msg;
+}
+
+// =============================================================================
+// API LAYER
+// =============================================================================
+const RETRIABLE = new Set([401, 408, 429, 500, 502, 503, 504]);
+let __lastApiCallTs = 0;
+
+const RETRY_DELAY_FIJO_MS = 5000;
+const RETRY_MAX_REINTENTOS = 3;
+const LLAMADAS_POR_ARCHIVO = 2;
+const LLAMADAS_POR_BATCH = 4;
+const UMBRAL_FALLOS_CONSECUTIVOS = 3;
+let fallosConsecutivos = 0;
+
+const alarmState = { active: false, ctx: null, osc: null, gain: null, interval: null };
+
+function iniciarAlarmaError() {
+  if (alarmState.active) return;
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    gain.gain.value = 0.12;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    const F_SIRENA_BAJA = 700;
+    const F_SIRENA_ALTA = 1050;
+    const RAMP_SIRENA_MS = 750;
+    osc.frequency.setValueAtTime(F_SIRENA_BAJA, ctx.currentTime);
+    let subiendo = true;
+    const cicloSirena = () => {
+      const ahora = ctx.currentTime;
+      const desde = subiendo ? F_SIRENA_BAJA : F_SIRENA_ALTA;
+      const hacia = subiendo ? F_SIRENA_ALTA : F_SIRENA_BAJA;
+      osc.frequency.cancelScheduledValues(ahora);
+      osc.frequency.setValueAtTime(desde, ahora);
+      osc.frequency.linearRampToValueAtTime(hacia, ahora + RAMP_SIRENA_MS / 1000);
+      subiendo = !subiendo;
+    };
+    cicloSirena();
+    const interval = setInterval(cicloSirena, RAMP_SIRENA_MS);
+    alarmState.active = true;
+    alarmState.ctx = ctx;
+    alarmState.osc = osc;
+    alarmState.gain = gain;
+    alarmState.interval = interval;
+  } catch (e) { console.warn('No se pudo iniciar alarma', e); }
+}
+
+function detenerAlarmaError() {
+  if (!alarmState.active) return;
+  try {
+    if (alarmState.interval) clearInterval(alarmState.interval);
+    if (alarmState.osc) try { alarmState.osc.stop(); } catch (e) {}
+    if (alarmState.ctx) try { alarmState.ctx.close(); } catch (e) {}
+  } catch (e) {}
+  alarmState.active = false;
+  alarmState.ctx = null;
+  alarmState.osc = null;
+  alarmState.gain = null;
+  alarmState.interval = null;
+}
+
+function registrarFalloConsecutivo() {
+  fallosConsecutivos++;
+  if (fallosConsecutivos >= UMBRAL_FALLOS_CONSECUTIVOS) {
+    iniciarAlarmaError();
+    print(`🚨 ${fallosConsecutivos} fallos consecutivos: alarma activada. Revise conexión/token y pulse "Reconectar".`);
+  } else {
+    print(`⚠️ Fallo consecutivo ${fallosConsecutivos}/${UMBRAL_FALLOS_CONSECUTIVOS}.`);
+  }
+}
+
+function registrarExito() {
+  if (fallosConsecutivos > 0) {
+    print(`✅ Recuperado tras ${fallosConsecutivos} fallo(s) consecutivo(s).`);
+  }
+  fallosConsecutivos = 0;
+  if (alarmState.active) detenerAlarmaError();
+}
+
+async function esperarDelayApi(forzarEsperaCompleta = false) {
+  const delayMs = obtenerDelayMs();
+  const elapsed = Date.now() - __lastApiCallTs;
+  const wait = delayMs - elapsed;
+  if (wait <= 0) {
+    __lastApiCallTs = Date.now();
+    return 0;
+  }
+  if (forzarEsperaCompleta) {
+    if (wait > 100) print(`⏱️ Esperando ${(wait / 1000).toFixed(1)}s por delay configurado`);
+    await sleep(wait);
+  } else {
+    if (wait > 100) print(`⏱️ Esperando ${(wait / 1000).toFixed(1)}s por delay configurado`);
+    await sleep(wait);
+  }
+  __lastApiCallTs = Date.now();
+  return wait;
+}
+
+async function esperarReanudacion() {
+  while (appState.batchPausado) {
+    await sleep(1000);
+  }
+}
+
+async function apiFetch(url, init = {}, opts = {}) {
+  const skipRetry  = opts.skipRetry  ?? false;
+  const enforceDelay = opts.enforceDelay !== false;
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt <= RETRY_MAX_REINTENTOS) {
+    await esperarReanudacion();
+    if (enforceDelay) await esperarDelayApi(true);
+
+    let token;
+    try {
+      token = await ensureToken({ interactive: false });
+    } catch (e) {
+      await pausarPorToken('No se pudo obtener token antes de la llamada');
+      attempt++;
+      continue;
+    }
+
+    const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
+    if (init.body && typeof init.body === 'string' && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    let resp;
+    try {
+      resp = await fetch(url, { ...init, headers });
+    } catch (e) {
+      lastError = new Error(`fetch failed: ${e.message}`);
+      if (skipRetry) throw lastError;
+      if (attempt >= RETRY_MAX_REINTENTOS) throw lastError;
+      print(`⚠️ Error de red, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${RETRY_DELAY_FIJO_MS / 1000}s`);
+      await sleep(RETRY_DELAY_FIJO_MS);
+      attempt++;
+      continue;
+    }
+    if (resp.ok) {
+      const ct = resp.headers.get('content-type') || '';
+      return ct.includes('application/json') ? resp.json() : resp.text();
+    }
+    const status = resp.status;
+    const retriable = RETRIABLE.has(status);
+
+    if (status === 401) {
+      accessToken = null;
+      tokenExpiresAt = 0;
+      try { localStorage.removeItem(TOKEN_PERSIST_KEY); } catch (e) {}
+      try { sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch (e) {}
+      const renovado = await renovarTokenSilencioso();
+      if (renovado) {
+        print('🔄 Token renovado silenciosamente tras 401, reintentando...');
+        continue;
+      } else {
+        await pausarPorToken('Token expirado y no se pudo renovar. Pulse Reconectar.');
+        continue;
+      }
+    }
+
+    if (skipRetry || !retriable || attempt >= RETRY_MAX_REINTENTOS) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${status}: ${text.slice(0, 500)}`);
+    }
+    let wait;
+    const retryAfter = parseFloat(resp.headers.get('Retry-After') || '0');
+    if (retryAfter > 0) {
+      wait = Math.min(retryAfter * 1000, 120000);
+    } else {
+      wait = RETRY_DELAY_FIJO_MS;
+    }
+    print(`⚠️ API retryable ${status}, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${wait / 1000}s`);
+    await sleep(wait);
+    attempt++;
+    lastError = new Error(`HTTP ${status}`);
+  }
+  if (lastError) throw lastError;
+  throw new Error('apiFetch: reintentos agotados');
+}
+
+async function pausarPorToken(motivo) {
+  if (!appState.batchEnCurso) return;
+  appState.batchPausado = true;
+  btnReconectar.style.display = '';
+  btnReconectar.disabled = false;
+  btnLeerSheets.disabled = true;
+  btnPausarBatch.disabled = true;
+  print(`⏸️ ${motivo}`);
+}
+
+async function reanudarPorToken() {
+  appState.batchPausado = false;
+  btnReconectar.style.display = 'none';
+  btnReconectar.disabled = true;
+  if (appState.batchEnCurso) {
+    btnLeerSheets.disabled = true;
+    btnPausarBatch.disabled = false;
+  }
+  print('▶️ Reanudando batch...');
+}
+
+async function logApiTrace(message) {
+  try {
+    const ts = formatNow();
+    if (!CONFIG_IDS.API_TRACE_SHEET_ID) {
+      CONFIG_IDS.API_TRACE_SHEET_ID = await ensureTraceSheet();
+    }
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG_IDS.API_TRACE_SHEET_ID}/values/Sheet1!A:A:append?valueInputOption=USER_ENTERED`,
+      { method: 'POST', body: JSON.stringify({ values: [[ts, message]] }) }
+    );
+  } catch (e) { console.warn('trace', e); }
+}
+
+async function ensureTraceSheet() {
+  const q = "name='api_trace_informes_cie' and trashed=false and mimeType='application/vnd.google-apps.spreadsheet' and '" + CARPETA_CENTRAL_ID + "' in parents";
+  const r = await apiFetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&includeItemsFromAllDrives=true&supportsAllDrives=true`);
+  if (r.files && r.files.length > 0) return r.files[0].id;
+  const body = JSON.stringify({ name: 'api_trace_informes_cie', mimeType: 'application/vnd.google-apps.spreadsheet', parents: [CARPETA_CENTRAL_ID] });
+  const created = await apiFetch('https://www.googleapis.com/drive/v3/files', { method: 'POST', body });
+  return created.id;
+}
+
+// =============================================================================
+// TEXT UTILS
+// =============================================================================
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function normalizarTexto(texto) {
+  if (!texto) return '';
+  texto = String(texto).toLowerCase().trim();
+  texto = texto.replace(/á/g, 'a').replace(/é/g, 'e').replace(/í/g, 'i').replace(/ó/g, 'o').replace(/ú/g, 'u');
+  texto = texto.replace(/ñ/g, 'n');
+  texto = texto.replace(/[_-]/g, ' ');
+  texto = texto.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, ' ');
+  texto = texto.replace(/\s+/g, ' ').trim();
+  return texto;
+}
+
+function normalizarTituloHoja(titulo) {
+  let t = normalizarTexto(titulo);
+  for (const s of ['📊', '📝', '✅', '📌', '🚀', '✨', '•', '·']) t = t.replace(new RegExp(s, 'g'), ' ');
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+const ALIAS_PROYECTO = {
+  'protagonistas del cambio': 'PDC 2024',
+  'tecnologias digitales en accion': 'TDA 2025',
+  'tda': 'TDA 2025',
+  'aulas conectadas 2022 segunda': 'AC 2022 - 2da',
+  'economia circular': 'REAC RM',
+  'aprendizaje mas servicio': 'A+S',
+  'aprendizaje + servicio': 'A+S',
+  'revinculacion educativa': 'KIT REV',
+  'transformacion educativa': 'KIT TRANSF',
+};
+
+function detectarProyectoActual(celdaTexto) {
+  if (!celdaTexto) return null;
+  const celdaNorm = normalizarTexto(celdaTexto);
+  const tokensExcluir = ['proyectos activos', 'evaluacion por proyecto', 'matriz de escuelas', 'datos del sostenedor', 'datos del convenio'];
+  if (celdaNorm && tokensExcluir.some(x => celdaNorm.includes(x))) return null;
+  for (const [codigo, info] of Object.entries(PROYECTOS_CIE)) {
+    if (info.icono && celdaTexto.includes(info.icono)) return codigo;
+  }
+  if (!celdaNorm) return null;
+  for (const [codigo] of Object.entries(PROYECTOS_CIE)) {
+    const codigoNorm = normalizarTexto(codigo);
+    if (celdaNorm === codigoNorm || (codigoNorm.length >= 3 && celdaNorm.includes(codigoNorm))) return codigo;
+  }
+  for (const [codigo, info] of Object.entries(PROYECTOS_CIE)) {
+    const nombreNorm = normalizarTexto(info.nombre_completo);
+    if (celdaNorm === nombreNorm) return codigo;
+    if (celdaNorm.length >= 15 && (nombreNorm.includes(celdaNorm) || celdaNorm.includes(nombreNorm))) return codigo;
+  }
+  for (const [alias, codigo] of Object.entries(ALIAS_PROYECTO)) {
+    if (alias.length >= 4 && celdaNorm.includes(alias)) return codigo;
+  }
+  return null;
+}
+
+function extraerRexDeNombreArchivo(nombreArchivo) {
+  const s = String(nombreArchivo || '');
+  let m = s.match(/-\s*([A-Z0-9\-/]+)\s*-/);
+  if (m) {
+    const rex = m[1].trim();
+    if (rex && rex !== 'CIE' && rex !== 'INFORME') return rex;
+  }
+  m = s.match(/REX[\s\-]*([0-9]+[A-Z0-9\-/]*)/i);
+  if (m) return `REX-${m[1]}`;
+  return 'REX_DESCONOCIDO';
+}
+
+function extraerIdConvenioDeNombreArchivo(nombreArchivo) {
+  let s = String(nombreArchivo || '').trim();
+  s = s.replace(/\.(xlsx|gsheet)$/i, '');
+  return s;
+}
+
+function textoLimpio(valor) {
+  if (valor === null || valor === undefined || (typeof valor === 'number' && isNaN(valor))) return '';
+  const texto = String(valor).trim();
+  return texto.toLowerCase() === 'nan' ? '' : texto;
+}
+
+function esValorPlaceholder(valor) { return textoLimpio(valor) === PLACEHOLDER_PROYECTO_NO_EXISTE; }
+
+function htmlEscape(valor) {
+  const v = textoLimpio(valor);
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function valorHtml(valor, vacio = '(vacio)') {
+  const texto = textoLimpio(valor);
+  return texto ? htmlEscape(texto) : `<span class="cie-muted">${htmlEscape(vacio)}</span>`;
+}
+
+function normalizarNumeroObservacion(valor) {
+  try { return parseInt(String(valor).trim() || '0', 10) || 0; } catch (e) { return 0; }
+}
+
+function obtenerColumnasProyecto(proyecto) {
+  const columnas = [`${proyecto}_Nota`, `${proyecto}_Pregunta_Respuesta`, `${proyecto}_Escuelas_Participantes`, `${proyecto}_Comentarios`];
+  for (const beneficio of (PROYECTOS_CIE[proyecto] || {}).beneficios || []) {
+    columnas.push(`${proyecto}_${beneficio.replace(/ /g, '_')}_Frecuencia`);
+  }
+  return columnas;
+}
+
+function proyectoEstaMarcadoComoInexistente(row, proyecto) {
+  const columnas = obtenerColumnasProyecto(proyecto);
+  let tieneColumnas = false;
+  for (const col of columnas) {
+    if (!(col in row)) continue;
+    tieneColumnas = true;
+    if (!esValorPlaceholder(row[col] || '')) return false;
+  }
+  return tieneColumnas;
+}
+
+function detectarProyectosDesdeRow(row) {
+  const visibles = [];
+  for (const proyecto of Object.keys(PROYECTOS_CIE)) {
+    if (!proyectoEstaMarcadoComoInexistente(row, proyecto)) visibles.push(proyecto);
+  }
+  return visibles;
+}
+
+function aplicarPlaceholderProyectosNoPresentes(datosFormulario, proyectosEvaluados) {
+  const presentes = new Set(proyectosEvaluados || []);
+  for (const [proyecto, info] of Object.entries(PROYECTOS_CIE)) {
+    if (presentes.has(proyecto)) continue;
+    const columnasProyecto = [`${proyecto}_Nota`, `${proyecto}_Pregunta_Respuesta`, `${proyecto}_Escuelas_Participantes`, `${proyecto}_Comentarios`];
+    for (const beneficio of info.beneficios || []) {
+      columnasProyecto.push(`${proyecto}_${beneficio.replace(/ /g, '_')}_Frecuencia`);
+    }
+    for (const col of columnasProyecto) {
+      if (!(col in datosFormulario)) continue;
+      const actual = textoLimpio(datosFormulario[col] || '');
+      if (actual && !esValorPlaceholder(actual)) continue;
+      datosFormulario[col] = PLACEHOLDER_PROYECTO_NO_EXISTE;
+    }
+  }
+  return datosFormulario;
+}
+
+function obtenerIndiceColumna(encabezados, nombreColumna) {
+  const idx = encabezados.findIndex(h => String(h || '').trim() === nombreColumna);
+  return idx >= 0 ? idx : null;
+}
+
+function indiceALetraColumna(idx) {
+  let letras = '';
+  let n = idx + 1;
+  while (n > 0) {
+    const resto = (n - 1) % 26;
+    letras = String.fromCharCode(65 + resto) + letras;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letras;
+}
+
+function formatNow() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function formatDuracion(ms) {
+  if (!ms || ms < 0 || !isFinite(ms)) return '?';
+  const totalSeg = Math.round(ms / 1000);
+  const h = Math.floor(totalSeg / 3600);
+  const m = Math.floor((totalSeg % 3600) / 60);
+  const s = totalSeg % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function imprimirEstadisticasTiempo(archivosRestantes, batchSize, delaySeg, runStartMs, archivosProcesados, lastFileMs) {
+  const partes = [];
+  partes.push(`Último archivo: ${(lastFileMs / 1000).toFixed(1)}s`);
+  partes.push(`Restantes: ${archivosRestantes}`);
+  const batchesRestantes = batchSize > 0 ? Math.ceil(archivosRestantes / batchSize) : 0;
+  const llamadasRestantes = archivosRestantes * LLAMADAS_POR_ARCHIVO + batchesRestantes * LLAMADAS_POR_BATCH;
+  const etaTeoricoMs = llamadasRestantes * delaySeg * 1000;
+  partes.push(`ETA teórico: ${formatDuracion(etaTeoricoMs)}`);
+  const avgPorArchivoMs = archivosProcesados > 0 ? (Date.now() - runStartMs) / archivosProcesados : 0;
+  const etaEmpiricoMs = avgPorArchivoMs * archivosRestantes;
+  partes.push(`ETA empírico: ${formatDuracion(etaEmpiricoMs)}`);
+  print(`⏱️ ${partes.join(' | ')}`);
+}
+
+function validarAlineacionColumnasMaestro(encabezadosMaestro, datosFormulario) {
+  const problemas = [];
+  const esperado = obtenerEncabezadosMaestro();
+  const setMaestro = new Set((encabezadosMaestro || []).map(h => String(h || '').trim()));
+  const setEsperado = new Set(esperado);
+
+  const faltantes = esperado.filter(c => !setMaestro.has(c));
+  const inesperadas = (encabezadosMaestro || []).map(h => String(h || '').trim()).filter(c => c && !setEsperado.has(c));
+  if (faltantes.length) problemas.push(`Faltan ${faltantes.length} columnas del esquema: ${faltantes.slice(0, 8).join(', ')}${faltantes.length > 8 ? '…' : ''}`);
+  if (inesperadas.length) problemas.push(`Hay ${inesperadas.length} columnas inesperadas: ${inesperadas.slice(0, 8).join(', ')}${inesperadas.length > 8 ? '…' : ''}`);
+
+  const datosHuerfanos = [];
+  if (datosFormulario) {
+    for (const [k, v] of Object.entries(datosFormulario)) {
+      if (textoLimpio(v) === '' || esValorPlaceholder(v)) continue;
+      if (!setMaestro.has(k)) datosHuerfanos.push(k);
+    }
+  }
+  if (datosHuerfanos.length) problemas.push(`Hay ${datosHuerfanos.length} claves con valor sin columna en maestro: ${datosHuerfanos.slice(0, 8).join(', ')}${datosHuerfanos.length > 8 ? '…' : ''}`);
+
+  const layout = (encabezadosMaestro || []).map((header, idx) => {
+    const headerTrim = String(header || '').trim();
+    const tiene = datosFormulario && (headerTrim in datosFormulario) && textoLimpio(datosFormulario[headerTrim] || '') !== '' && !esValorPlaceholder(datosFormulario[headerTrim] || '');
+    return { header: headerTrim, letra: indiceALetraColumna(idx), idx, tieneValor: tiene };
+  });
+
+  return { ok: problemas.length === 0, problemas, layout, faltantes, inesperadas, datosHuerfanos };
+}
+
+// =============================================================================
+// PROGRESS PERSISTENCE
+// =============================================================================
+function _progresoVacio() {
+  return {
+    ultimo_indice_leido: 0,
+    ultimo_indice_confirmado: 0,
+    ultimo_id: '',
+    timestamp: '',
+    total_hojas: 0,
+    lote_size: 100,
+    region_filtro: '__TODAS__',
+    delay_segundos: DELAY_DEFAULT,
+  };
+}
+
+function cargarProgreso() {
+  try {
+    const raw = localStorage.getItem(LS_KEYS.PROGRESSO);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || typeof p !== 'object') return null;
+    const base = _progresoVacio();
+    return Object.assign(base, p);
+  } catch (e) { return null; }
+}
+
+function _persistirProgreso(data) {
+  try {
+    localStorage.setItem(LS_KEYS.PROGRESSO, JSON.stringify(data));
+    refrescarBarraProgreso();
+  } catch (e) { console.warn('No se pudo guardar progreso', e); }
+}
+
+function avanzarIndiceLeido(idxAbsoluto, idConvenio) {
+  const prev = cargarProgreso() || _progresoVacio();
+  const data = Object.assign({}, prev, {
+    ultimo_indice_leido: Math.max(prev.ultimo_indice_leido || 0, idxAbsoluto || 0),
+    ultimo_id: idConvenio || prev.ultimo_id || '',
+    timestamp: new Date().toISOString(),
+    total_hojas: prev.total_hojas || 0,
+    lote_size: parseInt(intBatchSize.value, 10) || 100,
+    region_filtro: selectRegionFiltro.value || '__TODAS__',
+    delay_segundos: obtenerDelaySegundos(),
+  });
+  _persistirProgreso(data);
+}
+
+function confirmarHastaIndice(idxAbsoluto) {
+  const prev = cargarProgreso() || _progresoVacio();
+  const data = Object.assign({}, prev, {
+    ultimo_indice_confirmado: Math.max(prev.ultimo_indice_confirmado || 0, idxAbsoluto || 0),
+    timestamp: new Date().toISOString(),
+  });
+  intStartAt.value = String(idxAbsoluto || 0);
+  _persistirProgreso(data);
+}
+
+function sincronizarTotalHojas(total) {
+  const prev = cargarProgreso();
+  if (!prev) return;
+  if ((prev.total_hojas || 0) === total) return;
+  const data = Object.assign({}, prev, { total_hojas: total });
+  _persistirProgreso(data);
+}
+
+function guardarProgreso(idxAbsoluto, idConvenio, totalHojas) {
+  const prev = cargarProgreso() || _progresoVacio();
+  const data = Object.assign({}, prev, {
+    ultimo_indice_leido: idxAbsoluto,
+    ultimo_indice_confirmado: idxAbsoluto,
+    ultimo_id: idConvenio || '',
+    timestamp: new Date().toISOString(),
+    total_hojas: totalHojas || prev.total_hojas || 0,
+    lote_size: parseInt(intBatchSize.value, 10) || 100,
+    region_filtro: selectRegionFiltro.value || '__TODAS__',
+    delay_segundos: obtenerDelaySegundos(),
+  });
+  _persistirProgreso(data);
+}
+
+function limpiarProgreso() {
+  try {
+    localStorage.removeItem(LS_KEYS.PROGRESSO);
+    refrescarBarraProgreso();
+  } catch (e) {}
+}
+
+function persistirBatchPendiente(datos, idxInicioAbsoluto, idxFinAbsoluto) {
+  try {
+    if (!datos || datos.length === 0) { limpiarBatchPendiente(); return; }
+    const payload = {
+      ts: new Date().toISOString(),
+      idxInicioAbsoluto: idxInicioAbsoluto || 0,
+      idxFinAbsoluto: idxFinAbsoluto || 0,
+      datos: datos,
+    };
+    localStorage.setItem(LS_KEYS.BATCH_PENDIENTE, JSON.stringify(payload));
+    refrescarIndicadorBatchPendiente();
+  } catch (e) {
+    if (e && e.name === 'QuotaExceededError') {
+      console.warn('localStorage sin cuota para batch pendiente; se continúa sin persistir');
+    } else {
+      console.warn('No se pudo persistir batch pendiente', e);
+    }
+  }
+}
+
+function cargarBatchPendiente() {
+  try {
+    const raw = localStorage.getItem(LS_KEYS.BATCH_PENDIENTE);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !Array.isArray(p.datos) || p.datos.length === 0) return null;
+    return p;
+  } catch (e) { return null; }
+}
+
+function limpiarBatchPendiente() {
+  try {
+    localStorage.removeItem(LS_KEYS.BATCH_PENDIENTE);
+    refrescarIndicadorBatchPendiente();
+  } catch (e) {}
+}
+
+function refrescarIndicadorBatchPendiente() {
+  const bp = cargarBatchPendiente();
+  const info = document.getElementById('batch-pendiente-info');
+  const btn = document.getElementById('btn-recuperar-batch');
+  if (!info || !btn) return;
+  if (bp && bp.datos.length > 0) {
+    const total = bp.datos.length;
+    const hasta = bp.idxFinAbsoluto || 0;
+    const desde = bp.idxInicioAbsoluto || 0;
+    info.innerHTML = `⚠️ Hay <b>${total}</b> registros en buffer pendientes de flushear al maestro (sheets #${desde}–#${hasta}).`;
+    info.style.display = '';
+    btn.style.display = '';
+    btn.disabled = false;
+  } else {
+    info.style.display = 'none';
+    btn.style.display = 'none';
+    btn.disabled = true;
+  }
+}
+
+function formatearFechaProgreso(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function refrescarBarraProgreso() {
+  const p = cargarProgreso();
+  if (!p) {
+    progresoInfo.textContent = 'Sin progreso registrado.';
+    btnReanudar.disabled = true;
+    btnReiniciarContador.disabled = true;
+    refrescarIndicadorBatchPendiente();
+    return;
+  }
+  const fecha = formatearFechaProgreso(p.timestamp);
+  const total = p.total_hojas || 0;
+  const totalTxt = total ? ` de ${total}` : '';
+  const leido = p.ultimo_indice_leido || 0;
+  const confirmado = p.ultimo_indice_confirmado || 0;
+  const enBuffer = Math.max(0, leido - confirmado);
+  const bufferHtml = enBuffer > 0
+    ? ` <span class="cie-status cie-status--warn">⚠️ ${enBuffer} en buffer sin confirmar</span>`
+    : '';
+  progresoInfo.innerHTML = `Último sheet leído: <b>#${leido}${totalTxt}</b>`
+    + (p.ultimo_id ? ` — <code>${htmlEscape(p.ultimo_id)}</code>` : '')
+    + ` — <span class="cie-muted">${fecha}</span>`
+    + `<br>Confirmado en maestro: <b>#${confirmado}${totalTxt}</b>`
+    + bufferHtml;
+  btnReanudar.disabled = false;
+  btnReiniciarContador.disabled = false;
+  refrescarIndicadorBatchPendiente();
+}
+
+function reanudarDesdeUltimo() {
+  const p = cargarProgreso();
+  if (!p) { print('⚠️ No hay progreso guardado.'); return; }
+  const nuevoStart = Math.max(p.ultimo_indice_confirmado || 0, p.ultimo_indice_leido || 0);
+  intStartAt.value = String(nuevoStart);
+  print(`▶️ Reanudando desde el índice ${nuevoStart} (último confirmado en maestro). Pulse "Reconectar" para continuar.`);
+}
+
+async function ejecutarRecuperarBatchPendiente() {
+  const bp = cargarBatchPendiente();
+  if (!bp || bp.datos.length === 0) {
+    print('ℹ️ No hay batch pendiente que recuperar.');
+    return;
+  }
+  if (!appState.maestroId && !CONFIG_IDS.MAESTRO_ID) {
+    print('❌ No hay maestro configurado. Conéctese primero.');
+    return;
+  }
+  const maestroId = appState.maestroId || CONFIG_IDS.MAESTRO_ID;
+  const btn = document.getElementById('btn-recuperar-batch');
+  btn.disabled = true;
+  print(`♻️ Recuperando batch pendiente: ${bp.datos.length} registros (sheets #${bp.idxInicioAbsoluto}–#${bp.idxFinAbsoluto})...`);
+  try {
+    const agregados = await agregarDatosAMaestro(maestroId, bp.datos);
+    print(`   ✅ ${agregados} registros agregados al maestro`);
+    limpiarBatchPendiente();
+    if (bp.idxFinAbsoluto) confirmarHastaIndice(bp.idxFinAbsoluto);
+    print('✅ Batch pendiente recuperado. Puede continuar la corrida con "Reanudar desde último".');
+  } catch (e) {
+    print(`❌ Error al recuperar batch: ${e.message}`);
+    btn.disabled = false;
+  }
+}
+
+function reanudarLoopAutomatico() {
+  const p = cargarProgreso();
+  if (!p) { print('⚠️ No hay progreso para reanudar.'); return false; }
+  const nuevoStart = Math.max(p.ultimo_indice_confirmado || 0, p.ultimo_indice_leido || 0);
+  intStartAt.value = String(nuevoStart);
+  print(`🔁 Reanudando corrida automáticamente desde sheet #${nuevoStart}...`);
+  ejecutarLecturaSheets();
+  return true;
+}
+
+function reiniciarContador() {
+  if (!window.confirm('¿Reiniciar el contador de progreso? Esto NO borra el maestro, sólo olvida el último índice y descarta cualquier batch pendiente.')) return;
+  limpiarProgreso();
+  limpiarBatchPendiente();
+  intStartAt.value = '0';
+  print('🔄 Contador de progreso reiniciado.');
+}
+
+// =============================================================================
+// REGION PARSING FROM FILENAME
+// =============================================================================
+const REGIONES_CONOCIDAS = [
+  'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
+  'Valparaíso', 'Metropolitana', "O'Higgins", 'Maule', 'Ñuble', 'Biobío',
+  'La Araucanía', 'Los Ríos', 'Los Lagos', 'Aysén', 'Magallanes'
+];
+const REGION_NORM_MAP = new Map();
+for (const r of REGIONES_CONOCIDAS) {
+  REGION_NORM_MAP.set(normalizarTexto(r), r);
+  REGION_NORM_MAP.set(normalizarTexto(r.replace("'", '')), r);
+}
+const ALIAS_REGION = {
+  'rm': 'Metropolitana',
+  'metropolitana de santiago': 'Metropolitana',
+  'region metropolitana': 'Metropolitana',
+  'bio bio': 'Biobío',
+  'biobio': 'Biobío',
+  'del biobio': 'Biobío',
+  'de la araucania': 'La Araucanía',
+  'araucania': 'La Araucanía',
+  'ohiggins': "O'Higgins",
+  "o'higgins": "O'Higgins",
+  'libertador general bernardo ohiggins': "O'Higgins",
+  'nuble': 'Ñuble',
+  'del maule': 'Maule',
+  'aysen del general carlos ibanez del campo': 'Aysén',
+  'aysen': 'Aysén',
+  'magallanes y de la antartica chilena': 'Magallanes',
+  'magallanes': 'Magallanes',
+};
+
+function parsearRegionDeNombreArchivo(nombreArchivo) {
+  const s = String(nombreArchivo || '').trim();
+  if (!s) return null;
+  let m = s.match(/-\s*REX-([A-Z0-9\-]+)\s*-\s*([^-\s][^-\n]*?)\s*(?:\.|$|-)/i);
+  if (m) {
+    const candidato = m[2].trim();
+    const canon = canonizarRegion(candidato);
+    if (canon) return canon;
+  }
+  m = s.match(/\bREX[\s\-]*([0-9]+[A-Z0-9\-]*)\b[\s\-]+([^-\s.][^-\n.]*?)(?:\s*-\s*|\.|$)/i);
+  if (m) {
+    const canon = canonizarRegion(m[2].trim());
+    if (canon) return canon;
+  }
+  const sNorm = normalizarTexto(s);
+  for (const [norm, canon] of REGION_NORM_MAP.entries()) {
+    if (norm.length < 4) continue;
+    if (sNorm.includes(norm)) return canon;
+  }
+  for (const [alias, canon] of Object.entries(ALIAS_REGION)) {
+    if (sNorm.includes(alias)) return canon;
+  }
+  return null;
+}
+
+function canonizarRegion(texto) {
+  if (!texto) return null;
+  const norm = normalizarTexto(texto).replace(/[''`´]/g, '');
+  if (REGION_NORM_MAP.has(norm)) return REGION_NORM_MAP.get(norm);
+  if (ALIAS_REGION[norm]) return ALIAS_REGION[norm];
+  return null;
+}
+
+function regionCoincideFiltro(regionDetectada, filtroValor) {
+  if (!filtroValor || filtroValor === '__TODAS__') return true;
+  if (!regionDetectada) return false;
+  return normalizarTexto(regionDetectada) === normalizarTexto(filtroValor);
+}
+
+function poblarDropdownRegiones() {
+  const anteriores = cargarProgreso();
+  const filtroGuardado = anteriores ? (anteriores.region_filtro || '__TODAS__') : '__TODAS__';
+  const opciones = ['__TODAS__', ...REGIONES_CONOCIDAS];
+  selectRegionFiltro.innerHTML = '';
+  for (const op of opciones) {
+    const opt = document.createElement('option');
+    opt.value = op;
+    opt.textContent = op === '__TODAS__' ? 'Todas' : op;
+    selectRegionFiltro.appendChild(opt);
+  }
+  if (opciones.includes(filtroGuardado)) selectRegionFiltro.value = filtroGuardado;
+  else selectRegionFiltro.value = '__TODAS__';
+  try { localStorage.setItem(LS_KEYS.REGION_FILTRO, selectRegionFiltro.value); } catch (e) {}
+}
+function hojaRange(hoja, suffix) {
+  const safe = /^[_A-Za-z0-9]+$/.test(hoja) ? hoja : `'${hoja.replace(/'/g, "''")}'`;
+  return suffix ? `${safe}${suffix}` : safe;
+}
+
+async function leerValoresHoja(spreadsheetId, rango) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(rango)}`;
+  const data = await apiFetch(url);
+  return data.values || [];
+}
+
+async function obtenerHojasDelSheet(spreadsheetId) {
+  const data = await apiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`);
+  const hojas = (data.sheets || []).map(s => s.properties).filter(p => p && p.title);
+  const result = { original: null, observaciones: [] };
+  for (const hoja of hojas) {
+    const t = normalizarTituloHoja(hoja.title);
+    if (t.includes('observacion') || t.includes('observaciones') || hoja.title.includes('📝')) {
+      result.observaciones.push(hoja);
+    } else if (!hoja.title.includes('🔒') && !t.includes('solo lectura') && !hoja.title.includes('banner')) {
+      result.original = hoja;
+    }
+  }
+  if (!result.original && hojas.length > 0) {
+    result.original = hojas[0];
+  }
+  return result;
+}
+
+async function _listarSubcarpetasRecursivo(folderId) {
+  const pendientes = [folderId];
+  const visitados = new Set();
+  const carpetas = new Set([folderId]);
+  while (pendientes.length > 0) {
+    const fid = pendientes.shift();
+    if (visitados.has(fid)) continue;
+    visitados.add(fid);
+    const q = `'${fid}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    let pageToken = null;
+    do {
+      const params = new URLSearchParams({ q, spaces: 'drive', fields: 'nextPageToken,files(id,name)', includeItemsFromAllDrives: 'true', supportsAllDrives: 'true', pageSize: '200' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const results = await apiFetch(`https://www.googleapis.com/drive/v3/files?${params}`);
+      for (const item of (results.files || [])) {
+        if (item.id && !carpetas.has(item.id)) { carpetas.add(item.id); pendientes.push(item.id); }
+      }
+      pageToken = results.nextPageToken || null;
+    } while (pageToken);
+  }
+  return [...carpetas];
+}
+
+async function listarSheetsEnCarpeta(carpetaId) {
+  const folderIds = await _listarSubcarpetasRecursivo(carpetaId);
+  const sheets = [];
+  for (const fid of folderIds) {
+    const q = `'${fid}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+    let pageToken = null;
+    do {
+      const params = new URLSearchParams({ q, spaces: 'drive', fields: 'nextPageToken,files(id,name,createdTime,modifiedTime)', includeItemsFromAllDrives: 'true', supportsAllDrives: 'true', pageSize: '200' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const results = await apiFetch(`https://www.googleapis.com/drive/v3/files?${params}`);
+      sheets.push(...(results.files || []));
+      pageToken = results.nextPageToken || null;
+    } while (pageToken);
+  }
+  sheets.sort((a, b) => (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()) || (a.id || '').localeCompare(b.id || ''));
+  return sheets;
+}
+
+// =============================================================================
+// CONFIG RESOLVER
+// =============================================================================
+async function validarCarpetaDrive(folderId, label) {
+  const meta = await apiFetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,mimeType&supportsAllDrives=true`);
+  if (meta.mimeType !== 'application/vnd.google-apps.folder') throw new Error(`${label} no corresponde a una carpeta de Drive valida.`);
+  return meta;
+}
+
+async function buscarDriveIdPorNombre(name, mimeType, parentId) {
+  const parts = [`name='${name.replace(/'/g, "\\'")}'`, `mimeType='${mimeType}'`, 'trashed=false'];
+  if (parentId) parts.push(`'${parentId}' in parents`);
+  const q = parts.join(' and ');
+  const results = await apiFetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&includeItemsFromAllDrives=true&supportsAllDrives=true&pageSize=50`);
+  return (results.files && results.files.length > 0) ? results.files[0].id : null;
+}
+
+async function validarIdYMime(fileId, mimeEsperado, label) {
+  if (!fileId) throw new Error(`No se resolvio ID obligatorio: ${label}`);
+  const meta = await apiFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType&supportsAllDrives=true`);
+  if (mimeEsperado && meta.mimeType !== mimeEsperado) throw new Error(`${label} no tiene mime esperado.`);
+  return meta;
+}
+
+async function resolverConfiguracionIds(verbose = true) {
+  if (configResuelta) return CONFIG_IDS;
+  await validarIdYMime(CONFIG_IDS.FOLDER_ID, 'application/vnd.google-apps.folder', 'CARPETA_CENTRAL_ID');
+  await validarIdYMime(CONFIG_IDS.REGIONES_FOLDER_ID, 'application/vnd.google-apps.folder', 'CARPETA_REGIONES_ID');
+
+  if (!CONFIG_IDS.MAESTRO_ID) {
+    CONFIG_IDS.MAESTRO_ID = await buscarDriveIdPorNombre(CONFIG_NAMES.MAESTRO_ID, 'application/vnd.google-apps.spreadsheet', CONFIG_IDS.FOLDER_ID);
+  }
+  if (CONFIG_IDS.MAESTRO_ID) {
+    await validarIdYMime(CONFIG_IDS.MAESTRO_ID, 'application/vnd.google-apps.spreadsheet', 'MAESTRO_ID');
+  }
+  configResuelta = true;
+  if (verbose) {
+    print(`✅ CARPETA_CENTRAL_ID: ${CONFIG_IDS.FOLDER_ID}`);
+    print(`✅ CARPETA_REGIONES_ID: ${CONFIG_IDS.REGIONES_FOLDER_ID}`);
+    print(`✅ MAESTRO_ID: ${CONFIG_IDS.MAESTRO_ID}`);
+  }
+  return CONFIG_IDS;
+}
+
+// =============================================================================
+// DATA EXTRACTION
+// =============================================================================
+function valorColumna(row, idx) {
+  return (row && row.length > idx) ? String(row[idx] || '').trim() : '';
+}
+
+function _esCheckboxMarcado(valor) {
+  const v = String(valor || '').trim().toUpperCase();
+  return ['TRUE', 'VERDADERO', 'X', '☑', 'SI', 'SÍ', '✓', '✔', 'YES'].includes(v);
+}
+
+function extraerDatosDeHojaBase(spreadsheetId, sheetName, allValues, numeroObservacion, carpetaNombre, nombreArchivo) {
+  const datosFormulario = {};
+  for (const c of COLUMNAS_FORMULARIO) datosFormulario[c] = '';
+
+  const datos = {
+    spreadsheet_id: spreadsheetId,
+    spreadsheet_url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
+    hoja: sheetName,
+    numero_observacion: numeroObservacion,
+    es_observacion: numeroObservacion > 0,
+    carpeta_nombre: carpetaNombre || '',
+    fecha_extraccion: formatNow(),
+    proyectos_evaluados: [],
+    tiene_datos_encuesta: false,
+    esta_enviado: false,
+    fecha_envio_detectada: '',
+    warnings: [],
+    formulario: datosFormulario
+  };
+
+  const ETIQUETAS_SOSTENEDOR = new Set([
+    'rex cie:', 'fecha convenio cie:', 'cantidad de escuelas:', 'establecimientos:',
+    'institucion:', 'rut sostenedor:', 'correo institucional:', 'region:'
+  ]);
+  const ETIQUETAS_FINALES = new Set([
+    'comentario final:',
+    'finalmente, se solicita que pueda indicarnos cualquier'
+  ]);
+  const ETIQUETAS_SECCION_PROYECTO = new Set([
+    'descripcion:', 'descripcion',
+    'fecha implementacion:', 'fecha implementacion',
+    'finalmente, se solicita que pueda indicarnos cualquier'
+  ]);
+  const TOKENES_FIN_SECCION_PROYECTO = [
+    'comentarios finales', 'seccion de envio', 'datos del sostenedor', 'datos del convenio cie'
+  ];
+
+  function esEtiqueta(celdaBNorm, setEtiquetas) {
+    if (!celdaBNorm) return false;
+    for (const e of setEtiquetas) {
+      if (celdaBNorm === e || celdaBNorm.startsWith(e)) return true;
+    }
+    return false;
+  }
+
+  let proyectoActual = null;
+  let beneficiosProyecto = [];
+
+  for (const row of allValues) {
+    if (row.length < 2) continue;
+    const celdaB = valorColumna(row, 1);
+    const celdaC = valorColumna(row, 2);
+    const celdaBNorm = normalizarTexto(celdaB);
+
+    if (TOKENES_FIN_SECCION_PROYECTO.some(t => celdaBNorm.includes(t))) {
+      proyectoActual = null;
+      beneficiosProyecto = [];
+    }
+
+    if (celdaB && !celdaB.startsWith('=')) {
+      const nuevoProy = detectarProyectoActual(celdaB);
+      if (nuevoProy) {
+        proyectoActual = nuevoProy;
+        beneficiosProyecto = [...(PROYECTOS_CIE[proyectoActual].beneficios)];
+        if (!datos.proyectos_evaluados.includes(proyectoActual)) datos.proyectos_evaluados.push(proyectoActual);
+      }
+    }
+
+    if (celdaBNorm === 'rex cie' || celdaBNorm === 'rex cie:' || celdaB.includes('REX CIE:')) { datosFormulario['Convenio_REX'] = celdaC; continue; }
+    if (celdaBNorm === 'fecha convenio cie' || celdaBNorm === 'fecha convenio cie:' || celdaB.includes('Fecha Convenio CIE:')) { datosFormulario['Convenio_Fecha'] = celdaC; continue; }
+    if (celdaB.includes('Cantidad de Escuelas:') || celdaB.includes('Establecimientos:') || celdaBNorm === 'establecimientos' || celdaBNorm === 'establecimientos:') { datosFormulario['Convenio_Cantidad_Escuelas'] = celdaC; continue; }
+    if (celdaBNorm === 'institucion' || celdaBNorm === 'institucion:') { if (celdaC) datosFormulario['Sostenedor_Institucion'] = celdaC; continue; }
+    if (celdaBNorm === 'rut sostenedor' || celdaBNorm === 'rut sostenedor:') { datosFormulario['Sostenedor_RUT'] = celdaC; continue; }
+    if (celdaBNorm === 'correo institucional' || celdaBNorm === 'correo institucional:') { datosFormulario['Sostenedor_Correo'] = celdaC; continue; }
+    if (celdaBNorm === 'region' || celdaBNorm === 'region:') { if (celdaC) datosFormulario['Sostenedor_Region'] = celdaC; continue; }
+
+    if (celdaBNorm === 'escuelas participantes' || celdaBNorm === 'escuelas participantes:') {
+      if (proyectoActual && celdaC) {
+        const col = `${proyectoActual}_Escuelas_Participantes`;
+        if (col in datosFormulario) datosFormulario[col] = celdaC;
+      }
+      continue;
+    }
+
+    if (celdaBNorm.startsWith('coloque una nota') || celdaBNorm.startsWith('coloque una nota:')) {
+      if (proyectoActual && celdaC && celdaC !== 'Seleccione...') {
+        const colNota = `${proyectoActual}_Nota`;
+        if (colNota in datosFormulario) { datosFormulario[colNota] = celdaC; datos.tiene_datos_encuesta = true; }
+      }
+      continue;
+    }
+    if (celdaBNorm === 'respuesta' || celdaBNorm === 'respuesta:') {
+      if (proyectoActual && celdaC) {
+        const colPreg = `${proyectoActual}_Pregunta_Respuesta`;
+        if (colPreg in datosFormulario) { datosFormulario[colPreg] = celdaC; datos.tiene_datos_encuesta = true; }
+      }
+      continue;
+    }
+    if (celdaBNorm.includes('indiquenos el grado de uso de los beneficios')) continue;
+
+    if (celdaBNorm === 'comentario final' || celdaBNorm === 'comentario final:') {
+      if (celdaC) { datosFormulario['Comentarios_Finales_1'] = celdaC; datos.tiene_datos_encuesta = true; }
+      continue;
+    }
+    if (proyectoActual && (celdaBNorm === 'comentario' || celdaBNorm === 'comentario:')) {
+      if (celdaC) {
+        const colCom = `${proyectoActual}_Comentarios`;
+        if (colCom in datosFormulario) { datosFormulario[colCom] = celdaC; datos.tiene_datos_encuesta = true; }
+      }
+      continue;
+    }
+    if (celdaBNorm.includes('finalmente, se solicita que pueda indicarnos cualquier')) continue;
+
+    if (esEtiqueta(celdaBNorm, ETIQUETAS_SECCION_PROYECTO)) continue;
+
+    if (celdaB.includes('MARQUE AQUÍ PARA CONFIRMAR ENVÍO') || celdaB.includes('MARQUE AQUI PARA CONFIRMAR ENVIO')) {
+      datosFormulario['Checkbox_Envio'] = _esCheckboxMarcado(celdaC) ? 'TRUE' : 'FALSE';
+      if (datosFormulario['Checkbox_Envio'] === 'TRUE') datos.esta_enviado = true;
+      continue;
+    }
+    if (celdaBNorm === 'fecha de envio' || celdaBNorm === 'fecha de envio:' || celdaBNorm === 'fecha envio' || celdaBNorm === 'fecha envio:') {
+      if (celdaC) { datosFormulario['Fecha_Envio'] = celdaC; datos.fecha_envio_detectada = celdaC; }
+      continue;
+    }
+    if (celdaBNorm === 'estado' || celdaBNorm === 'estado:') {
+      if (celdaC) {
+        datosFormulario['Estado_Formulario'] = celdaC;
+        if (celdaC.toUpperCase().includes('ENVIADO')) datos.esta_enviado = true;
+        if (celdaC.toUpperCase().includes('APROBADO')) {
+          print(`   ⏭️ Omitiendo sheet '${sheetName}' con estado Aprobado`);
+          return null;
+        }
+      }
+      continue;
+    }
+
+    if (proyectoActual && celdaC && celdaC !== 'Seleccione...' && celdaC.trim()) {
+      const bullets = ['•', '●', '-', '·', '»', '>', '*'];
+      let beneficioTexto = celdaB;
+      for (const b of bullets) {
+        if (beneficioTexto.startsWith(b)) { beneficioTexto = beneficioTexto.slice(b.length).trim(); break; }
+      }
+      beneficioTexto = beneficioTexto.trim();
+      if (beneficioTexto) {
+        const bTextNorm = normalizarTexto(beneficioTexto);
+        for (const beneficio of beneficiosProyecto) {
+          const bNorm = normalizarTexto(beneficio);
+          if (bNorm === bTextNorm) {
+            const colFreq = `${proyectoActual}_${beneficio.replace(/ /g, '_')}_Frecuencia`;
+            if (colFreq in datosFormulario) { datosFormulario[colFreq] = celdaC; datos.tiene_datos_encuesta = true; }
+            break;
+          }
+        }
+        if (!beneficiosProyecto.some(b => normalizarTexto(b) === bTextNorm)) {
+          datos.warnings.push(`Fila ${allValues.indexOf(row) + 1}: bullet "${beneficioTexto}" no matchea beneficio de ${proyectoActual} (esperado exacto: ${beneficiosProyecto.map(normalizarTexto).join(' | ')})`);
+        }
+      }
+      continue;
+    }
+  }
+
+  if (datos.esta_enviado && !datosFormulario['Fecha_Envio']) {
+    datosFormulario['Fecha_Envio'] = datos.fecha_extraccion;
+    datos.fecha_envio_detectada = datos.fecha_extraccion;
+  }
+
+  aplicarPlaceholderProyectosNoPresentes(datosFormulario, datos.proyectos_evaluados);
+  datos.formulario = datosFormulario;
+  return datos;
+}
+
+function extraerDatosDeHoja(spreadsheetId, sheetName, allValues, numeroObservacion = 0, carpetaNombre = null, nombreArchivo = null) {
+  return extraerDatosDeHojaBase(spreadsheetId, sheetName, allValues, numeroObservacion, carpetaNombre, nombreArchivo);
+}
+
+async function extraerDatosInforme(spreadsheetId, hojaNombre = null, carpetaNombre = null, nombreArchivo = null, returnDiagnostico = false) {
+  const diagnostico = {
+    spreadsheet_id: spreadsheetId, archivo: nombreArchivo || spreadsheetId,
+    hojas_total: 0, hojas_procesadas: 0, hoja_original: '', hojas_observaciones: 0,
+    registros_extraidos: 0, registros_error: 0, hojas_omitidas_aprobado: 0, omitido: false,
+    causa_omision: '', errores: []
+  };
+
+  try {
+    diagnostico.archivo = nombreArchivo || spreadsheetId;
+    const resultados = [];
+
+    if (hojaNombre) {
+      const allValues = await leerValoresHoja(spreadsheetId, hojaNombre);
+      diagnostico.hojas_total = 1;
+      diagnostico.hojas_procesadas = 1;
+      diagnostico.hoja_original = hojaNombre;
+      const datos = extraerDatosDeHoja(spreadsheetId, hojaNombre, allValues, 0, carpetaNombre, nombreArchivo);
+      if (datos) resultados.push(datos);
+      else diagnostico.hojas_omitidas_aprobado++;
+    } else {
+      const hojasClasificadas = await obtenerHojasDelSheet(spreadsheetId);
+      const hojaOriginal = hojasClasificadas.original;
+      const hojasObs = hojasClasificadas.observaciones;
+      diagnostico.hoja_original = hojaOriginal ? hojaOriginal.title : '';
+      diagnostico.hojas_observaciones = hojasObs.length;
+      diagnostico.hojas_total = 1 + hojasObs.length + (hojaOriginal ? 0 : 0);
+
+      if (hojaOriginal) {
+        diagnostico.hojas_procesadas++;
+        const allOrig = await leerValoresHoja(spreadsheetId, hojaOriginal.title);
+        const datosOrig = extraerDatosDeHoja(spreadsheetId, hojaOriginal.title, allOrig, 0, carpetaNombre, nombreArchivo);
+        if (datosOrig) resultados.push(datosOrig);
+        else diagnostico.hojas_omitidas_aprobado++;
+      }
+
+      for (let i = 0; i < hojasObs.length; i++) {
+        diagnostico.hojas_procesadas++;
+        const allObs = await leerValoresHoja(spreadsheetId, hojasObs[i].title);
+        const datosObs = extraerDatosDeHoja(spreadsheetId, hojasObs[i].title, allObs, i + 1, carpetaNombre, nombreArchivo);
+        if (datosObs) resultados.push(datosObs);
+        else diagnostico.hojas_omitidas_aprobado++;
+      }
+    }
+
+    const idConvenioArchivo = extraerIdConvenioDeNombreArchivo(nombreArchivo || spreadsheetId);
+    for (const r of resultados) r.id_convenio_archivo = idConvenioArchivo;
+
+    diagnostico.registros_extraidos = resultados.length;
+    diagnostico.registros_error = resultados.filter(d => d.tiene_error).length;
+
+    if (resultados.length === 0) {
+      diagnostico.omitido = true;
+      if (diagnostico.hojas_procesadas === 0) diagnostico.causa_omision = 'No se detectaron hojas procesables';
+      else if (diagnostico.hojas_omitidas_aprobado === diagnostico.hojas_procesadas) diagnostico.causa_omision = 'Todas las hojas estan en estado APROBADO';
+      else diagnostico.causa_omision = 'No se extrajeron registros validos';
+    }
+
+    return returnDiagnostico ? [resultados, diagnostico] : resultados;
+  } catch (e) {
+    const rexExtraido = extraerRexDeNombreArchivo(nombreArchivo || spreadsheetId);
+    const idConvenioArchivo = extraerIdConvenioDeNombreArchivo(nombreArchivo || spreadsheetId);
+    const datosFormularioError = {};
+    for (const c of COLUMNAS_FORMULARIO) datosFormularioError[c] = '';
+    datosFormularioError['Convenio_REX'] = rexExtraido;
+    datosFormularioError['Estado_Formulario'] = 'ERROR en la captura de informacion';
+    const datosError = {
+      spreadsheet_id: spreadsheetId, spreadsheet_url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
+      hoja: 'N/A', numero_observacion: 0, es_observacion: false, carpeta_nombre: carpetaNombre || '',
+      fecha_extraccion: formatNow(), proyectos_evaluados: [], tiene_datos_encuesta: false,
+      esta_enviado: false, fecha_envio_detectada: '', tiene_error: true, mensaje_error: String(e),
+      id_convenio_archivo: idConvenioArchivo,
+      formulario: datosFormularioError
+    };
+    diagnostico.omitido = true;
+    diagnostico.causa_omision = `Error: ${e}`;
+    diagnostico.errores.push(String(e));
+    diagnostico.registros_error = 1;
+    return returnDiagnostico ? [[datosError], diagnostico] : [datosError];
+  }
+}
+
+// =============================================================================
+// MAESTRO OPERATIONS
+// =============================================================================
+async function crearObtenerMaestro() {
+  await resolverConfiguracionIds(true);
+  let maestroId = CONFIG_IDS.MAESTRO_ID;
+
+  if (maestroId) {
+    print('✅ Maestro existente reutilizado (modo incremental). No se eliminan datos previos.');
+    print(`   ID: ${maestroId}`);
+  } else {
+    print('📄 Creando CIE_Datos_Maestros en central...');
+    const body = JSON.stringify({
+      name: NOMBRE_MAESTRO,
+      mimeType: 'application/vnd.google-apps.spreadsheet',
+      parents: [CONFIG_IDS.FOLDER_ID]
+    });
+    const created = await apiFetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', { method: 'POST', body });
+    maestroId = created.id;
+    CONFIG_IDS.MAESTRO_ID = maestroId;
+    print(`✅ Maestro creado: ${maestroId}`);
+  }
+
+  appState.maestroId = maestroId;
+  appState.hojaMaestra = await obtenerNombrePrimeraHoja(maestroId);
+  print(`✅ Hoja maestra: "${appState.hojaMaestra}"`);
+
+  try {
+    await sincronizarEncabezadosMaestro(maestroId);
+    print('   ✅ Encabezados sincronizados (columnas faltantes agregadas, no se eliminaron)');
+  } catch (e) {
+    print(`⚠️ Sincronizacion de encabezados: ${e.message}`);
+  }
+
+  print(`✅ Maestro oficial: https://docs.google.com/spreadsheets/d/${maestroId}`);
+  return maestroId;
+}
+
+async function obtenerNombrePrimeraHoja(spreadsheetId) {
+  const data = await apiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`);
+  return data.sheets[0].properties.title;
+}
+
+async function sincronizarEncabezadosMaestro(spreadsheetId) {
+  const hoja = await obtenerNombrePrimeraHoja(spreadsheetId);
+  const encRange = hojaRange(hoja, '!1:1');
+  const allValues = await leerValoresHoja(spreadsheetId, encRange);
+  const existing = allValues.length > 0 ? allValues[0] : [];
+  const expected = obtenerEncabezadosMaestro();
+  const missing = expected.filter(c => !existing.includes(c));
+  if (missing.length === 0) return;
+  const merged = [...existing];
+  for (const c of missing) merged.push(c);
+  const rangeStr = hojaRange(hoja, '!1:1');
+  await apiFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(rangeStr)}?valueInputOption=RAW`,
+    { method: 'PUT', body: JSON.stringify({ range: rangeStr, values: [merged] }) }
+  );
+  await sleep(obtenerDelayMs());
+}
+
+function verificarEstadoEnMaestro(allValues, encabezados, idConvenioArchivo, numeroObservacion = 0) {
+  const idxId = obtenerIndiceColumna(encabezados, 'ID_Convenio_Archivo');
+  const idxFilaValida = obtenerIndiceColumna(encabezados, 'Fila_Valida');
+  const idxEstado = obtenerIndiceColumna(encabezados, 'Estado_Registro');
+  const idxNumObs = obtenerIndiceColumna(encabezados, 'Numero_Observacion');
+
+  if (idxId === null || idxFilaValida === null) return { existe: false, estado: null, fila_num: null, accion: 'procesar_normal' };
+
+  const filasValidas = [];
+
+  for (let i = 1; i < allValues.length; i++) {
+    const row = allValues[i];
+    if (String(row[idxId] || '').trim() !== String(idConvenioArchivo).trim()) continue;
+    if (String(row[idxFilaValida] || '').trim().toLowerCase() !== 'valid') continue;
+    const estado = idxEstado !== null && row.length > idxEstado ? String(row[idxEstado] || '').trim() : '';
+    let numObsFila = 0;
+    if (idxNumObs !== null && row.length > idxNumObs) {
+      try { numObsFila = parseInt(row[idxNumObs], 10) || 0; } catch (e) {}
+    }
+    filasValidas.push({ fila_num: i + 1, estado, numero_observacion: numObsFila });
+  }
+
+  if (filasValidas.length === 0) return { existe: false, estado: null, fila_num: null, accion: 'procesar_normal' };
+
+  const filaAprobada = filasValidas.find(f => f.estado.toUpperCase() === 'APROBADO');
+  if (filaAprobada) return { existe: true, estado: filaAprobada.estado, fila_num: filaAprobada.fila_num, accion: 'skip' };
+
+  if (numeroObservacion > 0) {
+    const filaOrig = filasValidas.find(f => f.numero_observacion === 0);
+    if (filaOrig) return { existe: true, estado: filaOrig.estado, fila_num: filaOrig.fila_num, accion: 'marcar_observado' };
+  }
+
+  return { existe: true, estado: filasValidas[0].estado, fila_num: filasValidas[0].fila_num, accion: 'procesar_normal' };
+}
+
+async function agregarDatosAMaestro(spreadsheetId, datosList) {
+  const hoja = appState.hojaMaestra || 'Sheet1';
+  const allValues = await leerValoresHoja(spreadsheetId, hojaRange(hoja));
+  let encabezadosMaestro = allValues.length > 0 ? allValues[0] : [];
+  const encabezadosEsperados = obtenerEncabezadosMaestro();
+  const columnasCriticas = new Set(['ID_Registro', 'ID_Convenio_Archivo', 'Fila_Valida', 'Estado_Registro']);
+
+  if (!encabezadosMaestro.length || ![...columnasCriticas].every(c => encabezadosMaestro.includes(c))) {
+    await sincronizarEncabezadosMaestro(spreadsheetId);
+    await sleep(obtenerDelayMs());
+    const refetched = await leerValoresHoja(spreadsheetId, hojaRange(hoja, '!1:1'));
+    encabezadosMaestro = refetched.length > 0 ? refetched[0] : [];
+  }
+
+  print("🔍 Verificando estados en maestro...");
+  const datosAProcesar = [];
+  const datosOmitidos = [];
+  const filasAMarcarObservado = [];
+
+  for (const datos of datosList) {
+    const formulario = datos.formulario || {};
+    const idConvenioArchivo = datos.id_convenio_archivo || '';
+    const numObs = datos.numero_observacion || 0;
+    if (!idConvenioArchivo) { datosAProcesar.push(datos); continue; }
+
+    const verificacion = verificarEstadoEnMaestro(allValues, encabezadosMaestro, idConvenioArchivo, numObs);
+    if (verificacion.accion === 'skip') {
+      datosOmitidos.push({ convenio: idConvenioArchivo, razon: 'Aprobado' });
+    } else if (verificacion.accion === 'marcar_observado') {
+      if (numObs > 0) {
+        const verOrig = verificarEstadoEnMaestro(allValues, encabezadosMaestro, idConvenioArchivo, 0);
+        if (verOrig.existe && verOrig.fila_num) filasAMarcarObservado.push({ fila_num: verOrig.fila_num, idConvenio: idConvenioArchivo });
+      }
+      datosAProcesar.push(datos);
+    } else {
+      datosAProcesar.push(datos);
+    }
+  }
+
+  if (datosOmitidos.length > 0) print(`   ⏭️ Total omitidos: ${datosOmitidos.length}`);
+  if (!datosAProcesar.length) return 0;
+
+  const ultimaFila = allValues.length;
+  const idBase = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+
+  const filasNuevas = [];
+  for (let i = 0; i < datosAProcesar.length; i++) {
+    const datos = datosAProcesar[i];
+    const estaEnviado = datos.esta_enviado || false;
+    const tieneDatos = datos.tiene_datos_encuesta || false;
+    const estado = estaEnviado ? 'Enviado' : (tieneDatos ? 'Llenado' : 'Pendiente');
+    const numObs = datos.numero_observacion || 0;
+    const formulario = datos.formulario || {};
+
+    const fila = [];
+    for (const col of encabezadosMaestro) {
+      if (col === 'ID_Registro') {
+        const obsSuffix = numObs > 0 ? `-obs${numObs}` : '';
+        const envSuffix = estaEnviado ? '-env' : '';
+        fila.push(`REG-${idBase}-${String(i + 1).padStart(3, '0')}${obsSuffix}${envSuffix}`);
+      } else if (col === 'ID_Convenio_Archivo') fila.push(datos.id_convenio_archivo || '');
+      else if (col === 'Fecha_Extraccion') fila.push(datos.fecha_extraccion || '');
+      else if (col === 'Carpeta_Origen') fila.push(datos.carpeta_nombre || '');
+      else if (col === 'URL_Sheet') fila.push(datos.spreadsheet_url || '');
+      else if (col === 'Hoja_Origen') fila.push(datos.hoja || '');
+      else if (col === 'Numero_Observacion') fila.push(String(numObs));
+      else if (col === 'Fila_Valida') fila.push('valid');
+      else if (col === 'Estado_Registro') fila.push(estado);
+      else if (col === 'Observaciones_Sistema') {
+        const notas = [];
+        if (numObs > 0) notas.push(`Observacion #${numObs}`);
+        if (estaEnviado) {
+          const fechaEnv = datos.fecha_envio_detectada || '';
+          notas.push(fechaEnv ? `Enviado el ${fechaEnv}` : 'Enviado');
+        }
+        fila.push(notas.join(' | '));
+      } else if (col === 'Version') fila.push('1');
+      else fila.push(formulario[col] || '');
+    }
+    filasNuevas.push(fila);
+  }
+
+  print("🔍 Validando alineacion de columnas contra el maestro...");
+  let desalineado = false;
+  for (let i = 0; i < filasNuevas.length; i++) {
+    const d = datosAProcesar[i];
+    const validacion = validarAlineacionColumnasMaestro(encabezadosMaestro, d.formulario || {});
+    if (!validacion.ok) {
+      desalineado = true;
+      print(`   ⚠️ Registro #${i + 1} (${d.id_convenio_archivo || 'sin ID'}): ${validacion.problemas.join(' | ')}`);
+    }
+  }
+  if (desalineado) print("   ⚠️ Continuando escritura de todos modos (validacion no aborta)");
+
+  const previewN = Math.min(3, filasNuevas.length);
+  if (previewN > 0) {
+    print(`👀 Preview de los primeros ${previewN} registros (columna: header -> valor):`);
+    for (let i = 0; i < previewN; i++) {
+      const d = datosAProcesar[i];
+      print(`   --- Registro #${i + 1} (${d.id_convenio_archivo || 'sin ID'}) ---`);
+      const validacion = validarAlineacionColumnasMaestro(encabezadosMaestro, d.formulario || {});
+      const mostrados = new Set();
+      for (const item of validacion.layout) {
+        if (!item.tieneValor) continue;
+        if (mostrados.has(item.header)) continue;
+        const val = (d.formulario || {})[item.header];
+        const trunc = String(val == null ? '' : val).length > 60 ? String(val).slice(0, 60) + '…' : val;
+        print(`      ${item.letra}: ${item.header} -> ${trunc}`);
+        mostrados.add(item.header);
+      }
+    }
+  }
+
+  if (filasNuevas.length > 0) {
+    await sleep(obtenerDelayMs());
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(hoja, '!A' + (ultimaFila + 1)))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      { method: 'POST', body: JSON.stringify({ values: filasNuevas }) }
+    );
+    const enviados = datosAProcesar.filter(d => d.esta_enviado).length;
+    const llenados = datosAProcesar.filter(d => d.tiene_datos_encuesta && !d.esta_enviado).length;
+    const pendientes = datosAProcesar.filter(d => !d.tiene_datos_encuesta && !d.esta_enviado).length;
+    print(`✅ ${filasNuevas.length} registros agregados al maestro (${encabezadosMaestro.length} columnas)`);
+    print(`   📨 Enviados: ${enviados} | ✏️ Llenados: ${llenados} | ⏳ Pendientes: ${pendientes}`);
+
+    // Batch: "Observado" markings + invalidate old valid rows (except APROBADO)
+    const idsConvenioAProcesar = [...new Set(datosAProcesar.map(d => d.id_convenio_archivo).filter(Boolean))];
+    const batchActualizaciones = [];
+    const idxId = obtenerIndiceColumna(encabezadosMaestro, 'ID_Convenio_Archivo');
+    const idxFilaValida = obtenerIndiceColumna(encabezadosMaestro, 'Fila_Valida');
+    const idxEstadoCol = obtenerIndiceColumna(encabezadosMaestro, 'Estado_Registro');
+
+    for (const item of filasAMarcarObservado) {
+      if (idxEstadoCol !== null) {
+        batchActualizaciones.push({
+          range: `${indiceALetraColumna(idxEstadoCol)}${item.fila_num}`,
+          values: [['Observado']]
+        });
+      }
+    }
+
+    if (idsConvenioAProcesar.length > 0 && idxId !== null && idxFilaValida !== null) {
+      const idsSet = new Set(idsConvenioAProcesar.map(id => String(id).trim()));
+      for (let i = 1; i < allValues.length; i++) {
+        const row = allValues[i];
+        const idConv = String(row[idxId] || '').trim();
+        if (!idsSet.has(idConv)) continue;
+        if (String(row[idxFilaValida] || '').trim().toLowerCase() !== 'valid') continue;
+        const estado = idxEstadoCol !== null && row.length > idxEstadoCol ? String(row[idxEstadoCol] || '').trim().toUpperCase() : '';
+        if (estado === 'APROBADO') continue;
+        batchActualizaciones.push({
+          range: `${indiceALetraColumna(idxFilaValida)}${i + 1}`,
+          values: [['not valid']]
+        });
+      }
+    }
+
+    if (batchActualizaciones.length > 0) {
+      await apiFetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+        { method: 'POST', body: JSON.stringify({ data: batchActualizaciones, valueInputOption: 'USER_ENTERED' }) }
+      );
+      const invalidadas = batchActualizaciones.filter(a => String(a.values[0][0]).toLowerCase() === 'not valid').length;
+      if (invalidadas > 0) print(`   🔄 ${invalidadas} filas previas invalidadas`);
+    }
+  }
+  return filasNuevas.length;
+}
+
+async function asegurarUnicidadFilasValidas(spreadsheetId) {
+  await sleep(obtenerDelayMs());
+  const hoja = appState.hojaMaestra || 'Sheet1';
+  const allValues = await leerValoresHoja(spreadsheetId, hojaRange(hoja));
+  if (!allValues.length) return { error: false, convenios_unicos: 0, duplicados_corregidos: 0 };
+
+  const encabezados = allValues[0];
+  const idxId = obtenerIndiceColumna(encabezados, 'ID_Convenio_Archivo');
+  const idxFilaValida = obtenerIndiceColumna(encabezados, 'Fila_Valida');
+  const idxFecha = obtenerIndiceColumna(encabezados, 'Fecha_Extraccion');
+  const idxEstado = obtenerIndiceColumna(encabezados, 'Estado_Registro');
+  if (idxId === null || idxFilaValida === null) return { error: true };
+
+  print("🔍 Verificando unicidad de filas validas...");
+  const filasPorConvenio = {};
+
+  for (let i = 1; i < allValues.length; i++) {
+    const row = allValues[i];
+    const idConv = String(row[idxId] || '').trim();
+    const estadoValido = String(row[idxFilaValida] || '').trim().toLowerCase();
+    if (!idConv || estadoValido !== 'valid') continue;
+    filasPorConvenio[idConv] = filasPorConvenio[idConv] || [];
+    filasPorConvenio[idConv].push({
+      fila_num: i + 1,
+      fecha: idxFecha !== null ? String(row[idxFecha] || '').trim() : '',
+      estado: idxEstado !== null ? String(row[idxEstado] || '').trim() : ''
+    });
+  }
+
+  const actualizaciones = [];
+  for (const [convenio, filas] of Object.entries(filasPorConvenio)) {
+    if (filas.length <= 1) continue;
+    const filaAprobada = filas.find(f => f.estado.toUpperCase() === 'APROBADO');
+    const filaAMantener = filaAprobada || filas[filas.length - 1];
+
+    for (const fila of filas) {
+      if (fila.fila_num === filaAMantener.fila_num) continue;
+      actualizaciones.push({
+        range: `${indiceALetraColumna(idxFilaValida)}${fila.fila_num}`,
+        values: [['not valid']]
+      });
+    }
+  }
+
+  let totalInvalidadas = 0;
+  if (actualizaciones.length > 0) {
+    await sleep(obtenerDelayMs());
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+      { method: 'POST', body: JSON.stringify({ data: actualizaciones, valueInputOption: 'USER_ENTERED' }) }
+    );
+    totalInvalidadas = actualizaciones.length;
+  }
+  print(`   ✅ ${totalInvalidadas} duplicados corregidos`);
+  return { error: false, convenios_unicos: Object.keys(filasPorConvenio).length, duplicados_corregidos: totalInvalidadas };
+}
+
+// =============================================================================
+// DOMAIN SHARING
+// =============================================================================
+async function obtenerDominioOrganizacion() {
+  try {
+    const about = await apiFetch('https://www.googleapis.com/drive/v3/about?fields=user');
+    const email = (about.user || {}).emailAddress || '';
+    const parts = email.split('@');
+    if (parts.length < 2) return null;
+    return parts[1];
+  } catch (e) {
+    console.warn('No se pudo obtener dominio:', e);
+    return null;
+  }
+}
+
+async function compartirConDominio(fileId, role, verbose = true) {
+  try {
+    const dominio = await obtenerDominioOrganizacion();
+    if (!dominio) {
+      if (verbose) print('⚠️ No se pudo detectar el dominio de la organizacion');
+      return false;
+    }
+    const body = JSON.stringify({
+      role: role,
+      type: 'domain',
+      domain: dominio
+    });
+    await apiFetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}/permissions?supportsAllDrives=true`,
+      { method: 'POST', body }
+    );
+    if (verbose) print(`✅ Permiso '${role}' otorgado al dominio @${dominio} para ${fileId}`);
+    return true;
+  } catch (e) {
+    if (verbose) print(`⚠️ No se pudo compartir con dominio: ${e.message}`);
+    return false;
+  }
+}
+
+async function compartirRecursosConDominio(maestroId, verbose = true) {
+  if (verbose) print('🔗 Compartiendo recursos con la organizacion...');
+  await compartirConDominio(CONFIG_IDS.FOLDER_ID, 'writer', verbose);
+  await sleep(500);
+  if (maestroId) {
+    await compartirConDominio(maestroId, 'writer', verbose);
+    await sleep(500);
+  }
+  await compartirConDominio(CONFIG_IDS.REGIONES_FOLDER_ID, 'writer', verbose);
+}
+
+// =============================================================================
+// UI HELPERS
+// =============================================================================
+function print(msg) {
+  outputArea.innerHTML += `<div>${String(msg)}</div>`;
+  outputArea.scrollTop = outputArea.scrollHeight;
+}
+
+function clearOutput() { outputArea.innerHTML = ''; }
+
+function setProgress(value, max, text) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  outputArea.innerHTML += `<div><progress value="${value}" max="${max}" style="width:100%"></progress> ${pct}% ${text || ''}</div>`;
+  outputArea.scrollTop = outputArea.scrollHeight;
+}
+
+// =============================================================================
+// MAIN HANDLERS
+// =============================================================================
+async function onLoginSuccess() {
+  try {
+    await initGis();
+    await resolverConfiguracionIds(true);
+    const maestroId = await crearObtenerMaestro();
+    await compartirRecursosConDominio(maestroId, true);
+    btnLeerSheets.disabled = false;
+    setLoginStatus('ok', '🟢 Conectado');
+    print('✅ Sistema listo para leer informes CIE');
+  } catch (e) {
+    setLoginStatus('err', '🔴 Error: ' + e.message);
+    print('❌ ' + e.message);
+  }
+}
+
+btnConectar.addEventListener('click', async () => {
+  setLoginStatus('warn', '🟡 Solicitando acceso...');
+  try {
+    await initGis();
+    await requestToken(true);
+    setLoginStatus('ok', '🟢 Conectado');
+    btnConectar.disabled = true;
+    btnConectar.textContent = '✅ Conectado';
+    await onLoginSuccess();
+  } catch (e) {
+    setLoginStatus('err', '🔴 Error: ' + (e.message || String(e)));
+    print('❌ Error de autenticacion: ' + (e.message || String(e)));
+  }
+});
+
+btnLeerSheets.addEventListener('click', () => ejecutarLecturaSheets());
+
+async function ejecutarLecturaSheets() {
+  if (appState.batchEnCurso) {
+    print('⚠️ Ya hay una corrida en curso. Espere a que termine o pause.');
+    return;
+  }
+  clearOutput();
+  btnLeerSheets.disabled = true;
+  btnLeerSheets.textContent = '⏳ Procesando...';
+  btnPausarBatch.disabled = false;
+  appState.batchEnCurso = true;
+  appState.batchPausado = false;
+  btnReconectar.style.display = 'none';
+  appState.errorFatal = false;
+  fallosConsecutivos = 0;
+  detenerAlarmaError();
+
+  try {
+    const batchSize = Math.max(1, parseInt(intBatchSize.value, 10) || 100);
+    const startAt = Math.max(0, parseInt(intStartAt.value, 10) || 0);
+    const regionFiltro = selectRegionFiltro.value || '__TODAS__';
+    const maestroId = CONFIG_IDS.MAESTRO_ID;
+    if (!maestroId) throw new Error('Maestro no configurado');
+    if (regionFiltro !== '__TODAS__') print(`🗺️ Filtro de región: ${regionFiltro}`);
+    print(`⏱️ Delay entre llamadas: ${obtenerDelaySegundos()}s`);
+
+    print(`📋 Listando sheets en carpeta regiones...`);
+    const sheetsList = await listarSheetsEnCarpeta(CARPETA_REGIONES_ID);
+    print(`📊 ${sheetsList.length} sheets encontrados`);
+    sincronizarTotalHojas(sheetsList.length);
+
+    const bpExistente = cargarBatchPendiente();
+    if (bpExistente && bpExistente.datos.length > 0) {
+      print(`♻️ Detectado batch pendiente previo (${bpExistente.datos.length} registros). Se re-flusheará al inicio.`);
+      try {
+        const agregadosPrev = await agregarDatosAMaestro(maestroId, bpExistente.datos);
+        print(`   ✅ Batch previo drenado: ${agregadosPrev} agregados`);
+        if (bpExistente.idxFinAbsoluto) confirmarHastaIndice(bpExistente.idxFinAbsoluto);
+        limpiarBatchPendiente();
+      } catch (e) {
+        print(`   ⚠️ No se pudo drenar batch previo (${e.message}). Se continuará; los duplicados serán omitidos.`);
+      }
+    }
+
+    const startIdx = startAt > 0 ? (startAt - 1) : 0;
+    const listToProcess = sheetsList.slice(startIdx);
+    const total = listToProcess.length;
+    let todosLosDatos = [];
+    const datosBatch = [];
+    let batchContador = 0;
+    let totalAgregadosBatches = 0;
+    let saltadosPorRegion = 0;
+    const reporteArchivos = [];
+    let batchInicioAbsoluto = null;
+    const runStart = Date.now();
+    let archivosProcesados = 0;
+    let lastFileMs = 0;
+
+    for (let idx = 0; idx < total; idx++) {
+      if (appState.batchPausado) {
+        print('⏸️ Batch pausado por el usuario.');
+        break;
+      }
+      const sheetInfo = listToProcess[idx];
+      const nombreSheet = sheetInfo.name || `sheet_${idx + 1}`;
+      const idSheet = sheetInfo.id;
+      const idxAbsoluto = startIdx + idx + 1;
+
+      const regionDetectada = parsearRegionDeNombreArchivo(nombreSheet);
+      if (!regionCoincideFiltro(regionDetectada, regionFiltro)) {
+        saltadosPorRegion++;
+        print(`   ⏭️ #${idxAbsoluto} saltado por región (detectada: ${regionDetectada || 'desconocida'}): ${nombreSheet}`);
+        avanzarIndiceLeido(idxAbsoluto, idSheet);
+        continue;
+      }
+      if (regionFiltro !== '__TODAS__' && !regionDetectada) {
+        print(`   ⚠️ #${idxAbsoluto} no se pudo parsear región de '${nombreSheet}' — se procesará`);
+      }
+
+      try {
+        const fileStart = Date.now();
+        setProgress(idxAbsoluto, sheetsList.length, `Procesando: ${nombreSheet} — Restantes: ${sheetsList.length - idxAbsoluto}`);
+        const [datosLista, diag] = await extraerDatosInforme(idSheet, null, null, nombreSheet, true);
+        const estadoArchivo = diag.omitido ? 'OMITIDO' : (diag.registros_error > 0 && diag.registros_error === diag.registros_extraidos ? 'ERROR' : 'LEIDO');
+        reporteArchivos.push({ archivo: nombreSheet, estado: estadoArchivo });
+
+        const logItems = [];
+        for (const datos of datosLista) {
+          todosLosDatos.push(datos);
+          datosBatch.push(datos);
+          if (batchInicioAbsoluto === null) batchInicioAbsoluto = idxAbsoluto;
+          if (datos.tiene_error) logItems.push(`Error (REX: ${(datos.formulario || {}).Convenio_REX || '?'})`);
+          else if (datos.esta_enviado) logItems.push('Enviado');
+          else if (datos.tiene_datos_encuesta) logItems.push(`${(datos.proyectos_evaluados || []).length} proyectos`);
+          else logItems.push('Pendiente');
+        }
+        if (diag.omitido) logItems.push(`OMITIDO: ${diag.causa_omision}`);
+        if (logItems.length) print(`   ✅ #${idxAbsoluto} ${logItems.join(' | ')}`);
+
+        for (const datos of datosLista) {
+          if (datos.warnings && datos.warnings.length > 0) {
+            print(`   ⚠️ ${datos.hoja}: ${datos.warnings.length} bullets no reconocidos en match estricto`);
+            for (const w of datos.warnings) print(`      - ${w}`);
+          }
+        }
+
+        lastFileMs = Date.now() - fileStart;
+        archivosProcesados++;
+
+        if (datosBatch.length >= batchSize) {
+          batchContador++;
+          const idxFinBatch = idxAbsoluto;
+          const idxInicioBatch = batchInicioAbsoluto || idxFinBatch;
+          print(`🔄 Guardando batch #${batchContador} (${datosBatch.length} registros, sheets #${idxInicioBatch}–#${idxFinBatch})...`);
+          persistirBatchPendiente(datosBatch.slice(), idxInicioBatch, idxFinBatch);
+          const agregados = await agregarDatosAMaestro(maestroId, datosBatch);
+          totalAgregadosBatches += agregados;
+          print(`   ✅ Batch #${batchContador}: ${agregados} registros agregados`);
+          confirmarHastaIndice(idxFinBatch);
+          limpiarBatchPendiente();
+          imprimirEstadisticasTiempo(total - (idx + 1), batchSize, obtenerDelaySegundos(), runStart, archivosProcesados, lastFileMs);
+          datosBatch.length = 0;
+          batchInicioAbsoluto = null;
+        }
+
+        if (datosLista.some(d => d.tiene_error)) registrarFalloConsecutivo();
+        else registrarExito();
+      } catch (e) {
+        reporteArchivos.push({ archivo: nombreSheet, estado: 'ERROR', causa: String(e) });
+        print(`   ❌ Error: ${e.message}`);
+        registrarFalloConsecutivo();
+      }
+
+      avanzarIndiceLeido(idxAbsoluto, idSheet);
+    }
+
+    if (datosBatch.length > 0) {
+      batchContador++;
+      const idxFinBatch = (startIdx + total);
+      const idxInicioBatch = batchInicioAbsoluto || idxFinBatch;
+      print(`🔄 Guardando batch final #${batchContador} (${datosBatch.length} registros, sheets #${idxInicioBatch}–#${idxFinBatch})...`);
+      persistirBatchPendiente(datosBatch.slice(), idxInicioBatch, idxFinBatch);
+      const agregados = await agregarDatosAMaestro(maestroId, datosBatch);
+      totalAgregadosBatches += agregados;
+      print(`   ✅ Batch final: ${agregados} registros agregados`);
+      confirmarHastaIndice(idxFinBatch);
+      limpiarBatchPendiente();
+      imprimirEstadisticasTiempo(0, batchSize, obtenerDelaySegundos(), runStart, archivosProcesados, lastFileMs);
+      datosBatch.length = 0;
+      batchInicioAbsoluto = null;
+    }
+
+    await asegurarUnicidadFilasValidas(maestroId);
+
+    const errores = todosLosDatos.filter(d => d.tiene_error).length;
+    const enviados = todosLosDatos.filter(d => d.esta_enviado && !d.tiene_error).length;
+    const llenados = todosLosDatos.filter(d => d.tiene_datos_encuesta && !d.esta_enviado && !d.tiene_error).length;
+    const pendientes = todosLosDatos.filter(d => !d.tiene_datos_encuesta && !d.esta_enviado && !d.tiene_error).length;
+
+    print(`✅ Lectura completada: ${todosLosDatos.length} registros`);
+    print(`   📨 Enviados: ${enviados} | ✏️ Llenados: ${llenados} | ⏳ Pendientes: ${pendientes}` + (errores > 0 ? ` | ❌ Errores: ${errores}` : ''));
+    print(`   📦 Batches: ${batchContador} | Total agregados: ${totalAgregadosBatches}` + (saltadosPorRegion > 0 ? ` | ⏭️ Saltados por región: ${saltadosPorRegion}` : ''));
+  } catch (e) {
+    print(`❌ Error: ${e.message}`);
+    console.error(e);
+    iniciarAlarmaError();
+    appState.errorFatal = true;
+    btnReconectar.style.display = '';
+    btnReconectar.disabled = false;
+    const bp = cargarBatchPendiente();
+    if (bp && bp.datos.length > 0) {
+      print(`💡 Hay ${bp.datos.length} registros en buffer. Pulse "Reconectar" para re-flushear y continuar.`);
+    }
+  } finally {
+    if (!appState.errorFatal) {
+      appState.batchEnCurso = false;
+      appState.batchPausado = false;
+      btnLeerSheets.disabled = false;
+      btnLeerSheets.textContent = '📖 Leer Informes CIE';
+      btnPausarBatch.disabled = true;
+      btnReconectar.style.display = 'none';
+    } else {
+      btnLeerSheets.disabled = true;
+      btnLeerSheets.textContent = '⏸️ En pausa por error';
+      btnPausarBatch.disabled = true;
+    }
+  }
+}
+
+btnPausarBatch.addEventListener('click', () => {
+  appState.batchPausado = !appState.batchPausado;
+  if (appState.batchPausado) {
+    btnPausarBatch.textContent = '▶️ Reanudar';
+    print('⏸️ Pausa solicitada. Terminará el batch en curso y se detendrá.');
+  } else {
+    btnPausarBatch.textContent = '⏸️ Pausar';
+    print('▶️ Reanudación solicitada.');
+  }
+});
+
+btnReconectar.addEventListener('click', async () => {
+  detenerAlarmaError();
+  setLoginStatus('warn', '🟡 Reconectando...');
+  try {
+    await initGis();
+    await requestToken(true);
+    setLoginStatus('ok', '🟢 Conectado');
+    print('🔌 Reconexión exitosa.');
+    await reanudarPorToken();
+
+    const bp = cargarBatchPendiente();
+    if (bp && bp.datos.length > 0) {
+      if (!CONFIG_IDS.MAESTRO_ID) {
+        print('❌ No hay maestro configurado. No se puede re-flushear el batch pendiente.');
+        return;
+      }
+      print(`♻️ Re-flusheando batch pendiente (${bp.datos.length} registros, sheets #${bp.idxInicioAbsoluto}–#${bp.idxFinAbsoluto})...`);
+      try {
+        const agregados = await agregarDatosAMaestro(CONFIG_IDS.MAESTRO_ID, bp.datos);
+        print(`   ✅ ${agregados} registros agregados al maestro`);
+        if (bp.idxFinAbsoluto) confirmarHastaIndice(bp.idxFinAbsoluto);
+        limpiarBatchPendiente();
+        print('✅ Batch pendiente drenado.');
+      } catch (e) {
+        print(`❌ Error al re-flushear batch pendiente: ${e.message}`);
+        iniciarAlarmaError();
+        return;
+      }
+    }
+
+    if (appState.batchEnCurso && appState.errorFatal) {
+      appState.errorFatal = false;
+      btnLeerSheets.textContent = '⏳ Procesando...';
+      reanudarLoopAutomatico();
+    }
+  } catch (e) {
+    setLoginStatus('err', '🔴 Error: ' + (e.message || String(e)));
+    print('❌ Error de reconexión: ' + (e.message || String(e)));
+  }
+});
+
+btnReanudar.addEventListener('click', reanudarDesdeUltimo);
+btnReiniciarContador.addEventListener('click', reiniciarContador);
+const btnRecuperarBatch = document.getElementById('btn-recuperar-batch');
+if (btnRecuperarBatch) btnRecuperarBatch.addEventListener('click', ejecutarRecuperarBatchPendiente);
+
+inputApiDelay.addEventListener('change', () => {
+  let v = parseFloat(inputApiDelay.value);
+  if (!isFinite(v) || isNaN(v)) v = DELAY_DEFAULT;
+  v = Math.max(DELAY_MIN, Math.min(DELAY_MAX, v));
+  inputApiDelay.value = v.toString();
+  try { localStorage.setItem(LS_KEYS.API_DELAY, v.toString()); } catch (e) {}
+  actualizarInfoDelay();
+  print(`⏱️ Delay actualizado a ${v}s entre llamadas.`);
+});
+
+inputApiDelay.addEventListener('input', actualizarInfoDelay);
+
+selectRegionFiltro.addEventListener('change', () => {
+  try { localStorage.setItem(LS_KEYS.REGION_FILTRO, selectRegionFiltro.value); } catch (e) {}
+  print(`🗺️ Filtro de región cambiado a: ${selectRegionFiltro.value === '__TODAS__' ? 'Todas' : selectRegionFiltro.value}`);
+});
+
+// =============================================================================
+// INITIALIZATION
+// =============================================================================
+async function init() {
+  detenerAlarmaError();
+  window.addEventListener('beforeunload', detenerAlarmaError);
+  window.addEventListener('pagehide', detenerAlarmaError);
+  if (window.self !== window.top) {
+    document.getElementById('iframe-warning').style.display = 'block';
+    document.getElementById('btn-new-tab').addEventListener('click', () => {
+      window.open(window.location.href, '_blank');
+    });
+  }
+  await initGis();
+
+  let delayGuardado = null;
+  try { delayGuardado = localStorage.getItem(LS_KEYS.API_DELAY); } catch (e) {}
+  if (delayGuardado) {
+    const v = parseFloat(delayGuardado);
+    if (isFinite(v) && !isNaN(v)) inputApiDelay.value = v.toString();
+  }
+  actualizarInfoDelay();
+
+  poblarDropdownRegiones();
+  refrescarBarraProgreso();
+  refrescarIndicadorBatchPendiente();
+
+  const stored = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      if (Date.now() < parsed.tokenExpiresAt) {
+        accessToken = parsed.accessToken;
+        tokenExpiresAt = parsed.tokenExpiresAt;
+        await onLoginSuccess();
+        return;
+      }
+    } catch (e) {}
+  }
+  const persist = cargarTokenPersistente();
+  if (persist) {
+    accessToken = persist.accessToken;
+    tokenExpiresAt = persist.tokenExpiresAt;
+    await onLoginSuccess();
+    return;
+  }
+  setLoginStatus('off', '⚪ No conectado');
+}
+
+init();
+</script>
+</body>
+</html>
