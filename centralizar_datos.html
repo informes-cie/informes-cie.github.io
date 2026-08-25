@@ -96,6 +96,7 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
         <option value="__TODAS__">Todas</option>
       </select>
     </label>
+    <label>Líneas máx en registro <input type="number" id="int-max-lineas" class="cie-input cie-input--small" value="100" min="10" step="10"></label>
   </div>
 
   <div class="cie-hbox" style="margin-top:8px;">
@@ -232,6 +233,7 @@ const progresoInfo = document.getElementById('progreso-info');
 const btnReanudar = document.getElementById('btn-reanudar');
 const btnReiniciarContador = document.getElementById('btn-reiniciar-contador');
 const outputArea = document.getElementById('output-area');
+const intMaxLineas = document.getElementById('int-max-lineas');
 
 // =============================================================================
 // APP STATE
@@ -256,7 +258,10 @@ const LS_KEYS = {
   PROGRESSO: 'cie_cent_progreso',
   REGION_FILTRO: 'cie_cent_region_filtro',
   BATCH_PENDIENTE: 'cie_cent_batch_pendiente',
+  MAX_LINEAS: 'cie_cent_max_lineas',
 };
+const MAX_LINEAS_DEFAULT = 100;
+const MAX_LINEAS_MIN = 10;
 
 function obtenerDelaySegundos() {
   let v = parseFloat(inputApiDelay.value);
@@ -1983,8 +1988,22 @@ async function compartirRecursosConDominio(maestroId, verbose = true) {
 // =============================================================================
 // UI HELPERS
 // =============================================================================
+function obtenerMaxLineasRegistro() {
+  let v = parseInt(intMaxLineas.value, 10);
+  if (!isFinite(v) || isNaN(v) || v < MAX_LINEAS_MIN) v = MAX_LINEAS_DEFAULT;
+  return v;
+}
+
+function podarRegistro() {
+  const max = obtenerMaxLineasRegistro();
+  while (outputArea.children.length > max) {
+    outputArea.removeChild(outputArea.firstChild);
+  }
+}
+
 function print(msg) {
-  outputArea.innerHTML += `<div>${String(msg)}</div>`;
+  outputArea.insertAdjacentHTML('beforeend', `<div>${String(msg)}</div>`);
+  podarRegistro();
   outputArea.scrollTop = outputArea.scrollHeight;
 }
 
@@ -1992,7 +2011,8 @@ function clearOutput() { outputArea.innerHTML = ''; }
 
 function setProgress(value, max, text) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
-  outputArea.innerHTML += `<div><progress value="${value}" max="${max}" style="width:100%"></progress> ${pct}% ${text || ''}</div>`;
+  outputArea.insertAdjacentHTML('beforeend', `<div><progress value="${value}" max="${max}" style="width:100%"></progress> ${pct}% ${text || ''}</div>`);
+  podarRegistro();
   outputArea.scrollTop = outputArea.scrollHeight;
 }
 
@@ -2288,6 +2308,15 @@ inputApiDelay.addEventListener('change', () => {
 
 inputApiDelay.addEventListener('input', actualizarInfoDelay);
 
+intMaxLineas.addEventListener('change', () => {
+  let v = parseInt(intMaxLineas.value, 10);
+  if (!isFinite(v) || isNaN(v) || v < MAX_LINEAS_MIN) v = MAX_LINEAS_DEFAULT;
+  intMaxLineas.value = v.toString();
+  try { localStorage.setItem(LS_KEYS.MAX_LINEAS, v.toString()); } catch (e) {}
+  podarRegistro();
+  print(`📋 Líneas máx en registro: ${v}.`);
+});
+
 selectRegionFiltro.addEventListener('change', () => {
   try { localStorage.setItem(LS_KEYS.REGION_FILTRO, selectRegionFiltro.value); } catch (e) {}
   print(`🗺️ Filtro de región cambiado a: ${selectRegionFiltro.value === '__TODAS__' ? 'Todas' : selectRegionFiltro.value}`);
@@ -2315,6 +2344,13 @@ async function init() {
     if (isFinite(v) && !isNaN(v)) inputApiDelay.value = v.toString();
   }
   actualizarInfoDelay();
+
+  let maxLineasGuardado = null;
+  try { maxLineasGuardado = localStorage.getItem(LS_KEYS.MAX_LINEAS); } catch (e) {}
+  if (maxLineasGuardado) {
+    const v = parseInt(maxLineasGuardado, 10);
+    if (isFinite(v) && !isNaN(v) && v >= MAX_LINEAS_MIN) intMaxLineas.value = v.toString();
+  }
 
   poblarDropdownRegiones();
   refrescarBarraProgreso();
