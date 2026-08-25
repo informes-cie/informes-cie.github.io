@@ -1147,6 +1147,15 @@ function regionCoincideFiltro(regionDetectada, filtroValor) {
   return normalizarTexto(regionDetectada) === normalizarTexto(filtroValor);
 }
 
+function regionCoincideFiltroCanonico(regionDetectada, filtroValor) {
+  if (!filtroValor || filtroValor === '__TODAS__') return true;
+  if (!regionDetectada) return false;
+  const canonDetectada = canonizarRegion(regionDetectada);
+  if (!canonDetectada) return false;
+  const canonFiltro = canonizarRegion(filtroValor) || filtroValor;
+  return canonDetectada === canonFiltro;
+}
+
 function poblarDropdownRegiones() {
   const anteriores = cargarProgreso();
   const filtroGuardado = anteriores ? (anteriores.region_filtro || '__TODAS__') : '__TODAS__';
@@ -2164,7 +2173,7 @@ async function procesarIniciadosLegacy() {
       const idConv = String(row[idxId] || '').trim();
       if (!idConv) continue;
       const regionDetectada = idxRegion !== null ? String(row[idxRegion] || '').trim() : '';
-      if (regionDetectada && !regionCoincideFiltro(regionDetectada, regionFiltro)) {
+      if (regionDetectada && !regionCoincideFiltroCanonico(regionDetectada, regionFiltro)) {
         saltadosFiltroRegionEstricto++;
         continue;
       }
