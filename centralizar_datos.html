@@ -608,7 +608,7 @@ async function logApiTrace(message) {
       CONFIG_IDS.API_TRACE_SHEET_ID = await ensureTraceSheet();
     }
     await apiFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG_IDS.API_TRACE_SHEET_ID}/values/Sheet1!A:A:append?valueInputOption=USER_ENTERED`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG_IDS.API_TRACE_SHEET_ID}/values/Sheet1!A:A:append?valueInputOption=RAW`,
       { method: 'POST', body: JSON.stringify({ values: [[ts, message]] }) }
     );
   } catch (e) { console.warn('trace', e); }
@@ -786,6 +786,63 @@ function formatNow() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function _diasDelMes(y, m) {
+  if (m === 2) return (((y % 4 === 0) && (y % 100 !== 0)) || (y % 400 === 0)) ? 29 : 28;
+  return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] || 0;
+}
+
+function _construirFechaValida(y, mo, d, h, mi, s) {
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  if (mo < 1 || mo > 12) return null;
+  if (d < 1 || d > _diasDelMes(y, mo)) return null;
+  if (h < 0 || h > 23 || mi < 0 || mi > 59 || s < 0 || s > 59) return null;
+  const dt = new Date(y, mo - 1, d, h, mi, s);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function parsearFechaCIE(fechaStr) {
+  const s = String(fechaStr || '').trim();
+  if (!s) return null;
+  let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/))) {
+    return _construirFechaValida(+m[1], +m[2], +m[3], +m[4], +m[5], +m[6]);
+  }
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2})$/))) {
+    return _construirFechaValida(+m[1], +m[2], +m[3], +m[4], +m[5], 0);
+  }
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) {
+    return _construirFechaValida(+m[1], +m[2], +m[3], 0, 0, 0);
+  }
+  const patrones = [
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+  ];
+  for (const re of patrones) {
+    if ((m = s.match(re))) {
+      const grupos = m.length;
+      let d = +m[1], mo = +m[2], y = +m[3];
+      let h = grupos > 4 ? (+m[4] || 0) : 0;
+      let mi = grupos > 5 ? (+m[5] || 0) : 0;
+      let se = grupos > 6 ? (+m[6] || 0) : 0;
+      let dt = _construirFechaValida(y, mo, d, h, mi, se);
+      if (!dt) dt = _construirFechaValida(y, d, mo, h, mi, se);
+      if (dt) return dt;
+    }
+  }
+  return null;
+}
+
+function normalizarFechaAISO(fechaStr) {
+  const dt = parsearFechaCIE(fechaStr);
+  if (!dt) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
 }
 
 function formatDuracion(ms) {
@@ -1424,7 +1481,17 @@ function extraerDatosDeHojaBase(spreadsheetId, sheetName, allValues, numeroObser
       continue;
     }
     if (celdaBNorm === 'fecha de envio' || celdaBNorm === 'fecha de envio:' || celdaBNorm === 'fecha envio' || celdaBNorm === 'fecha envio:') {
-      if (celdaC) { datosFormulario['Fecha_Envio'] = celdaC; datos.fecha_envio_detectada = celdaC; }
+      if (celdaC) {
+        const iso = normalizarFechaAISO(celdaC);
+        if (iso) {
+          datosFormulario['Fecha_Envio'] = iso;
+          datos.fecha_envio_detectada = iso;
+        } else {
+          datosFormulario['Fecha_Envio'] = celdaC;
+          datos.fecha_envio_detectada = celdaC;
+          datos.warnings.push(`Fecha_Envio no parseable, se guarda crudo: "${celdaC}"`);
+        }
+      }
       continue;
     }
     if (celdaBNorm === 'estado' || celdaBNorm === 'estado:') {
@@ -1797,7 +1864,7 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
   if (filasNuevas.length > 0) {
     await sleep(obtenerDelayMs());
     await apiFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(hoja, '!A' + (ultimaFila + 1)))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(hoja, '!A' + (ultimaFila + 1)))}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       { method: 'POST', body: JSON.stringify({ values: filasNuevas }) }
     );
     const enviados = datosAProcesar.filter(d => d.esta_enviado).length;
@@ -1828,7 +1895,7 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
           );
           await sleep(obtenerDelayMs());
           await apiFetch(
-            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(HOJA_TRANSICIONES, '!A1'))}?valueInputOption=USER_ENTERED`,
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(HOJA_TRANSICIONES, '!A1'))}?valueInputOption=RAW`,
             { method: 'PUT', body: JSON.stringify({ values: [ENCABEZADOS_TRANSICIONES] }) }
           );
         }
@@ -1841,7 +1908,7 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
         ]);
         const safeHojaTrans = hojaRange(HOJA_TRANSICIONES);
         await apiFetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(safeHojaTrans)}!A:A:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(safeHojaTrans)}!A:A:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
           { method: 'POST', body: JSON.stringify({ values: filasTransiciones }) }
         );
         print(`   🔀 ${filasTransiciones.length} transiciones de estado registradas en '${HOJA_TRANSICIONES}'`);
@@ -1885,7 +1952,7 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
     if (batchActualizaciones.length > 0) {
       await apiFetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-        { method: 'POST', body: JSON.stringify({ data: batchActualizaciones, valueInputOption: 'USER_ENTERED' }) }
+        { method: 'POST', body: JSON.stringify({ data: batchActualizaciones, valueInputOption: 'RAW' }) }
       );
       const invalidadas = batchActualizaciones.filter(a => String(a.values[0][0]).toLowerCase() === 'not valid').length;
       if (invalidadas > 0) print(`   🔄 ${invalidadas} filas previas invalidadas`);
@@ -1943,7 +2010,7 @@ async function asegurarUnicidadFilasValidas(spreadsheetId) {
     await sleep(obtenerDelayMs());
     await apiFetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-      { method: 'POST', body: JSON.stringify({ data: actualizaciones, valueInputOption: 'USER_ENTERED' }) }
+      { method: 'POST', body: JSON.stringify({ data: actualizaciones, valueInputOption: 'RAW' }) }
     );
     totalInvalidadas = actualizaciones.length;
   }
@@ -2081,7 +2148,7 @@ async function _asegurarHojaTransiciones(maestroId) {
     );
     await sleep(obtenerDelayMs());
     await apiFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}/values/${encodeURIComponent(hojaRange(HOJA_TRANSICIONES, '!A1'))}?valueInputOption=USER_ENTERED`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}/values/${encodeURIComponent(hojaRange(HOJA_TRANSICIONES, '!A1'))}?valueInputOption=RAW`,
       { method: 'PUT', body: JSON.stringify({ values: [ENCABEZADOS_TRANSICIONES] }) }
     );
   }
@@ -2218,19 +2285,17 @@ async function procesarIniciadosLegacy() {
     await _asegurarHojaTransiciones(maestroId);
     await sleep(obtenerDelayMs());
 
-    const filasNuevas = faltantes.map(t => [
-      t.id_convenio_archivo || '',
-      t.rex || '',
-      'Llenado',
-      t.fecha_extraccion || formatNow(),
-    ]);
+    const filasNuevas = faltantes.map(t => {
+      const fh = normalizarFechaAISO(t.fecha_extraccion) || formatNow();
+      return [t.id_convenio_archivo || '', t.rex || '', 'Llenado', fh];
+    });
 
     setProgress(0, filasNuevas.length, 'Escribiendo transiciones legacy...');
     print(`✏️ Escribiendo ${filasNuevas.length} transiciones legacy a '${HOJA_TRANSICIONES}'...`);
     await sleep(obtenerDelayMs());
     const safeHojaTrans = hojaRange(HOJA_TRANSICIONES);
     await apiFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}/values/${encodeURIComponent(safeHojaTrans)}!A:A:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}/values/${encodeURIComponent(safeHojaTrans)}!A:A:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       { method: 'POST', body: JSON.stringify({ values: filasNuevas }) }
     );
     agregadas = filasNuevas.length;

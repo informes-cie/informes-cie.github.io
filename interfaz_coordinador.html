@@ -842,30 +842,67 @@ function obtenerUltimaObservacion(row) {
   return '';
 }
 
-function formatearFechaExtraccion(fechaStr) {
+function _diasDelMes(y, m) {
+  if (m === 2) return (((y % 4 === 0) && (y % 100 !== 0)) || (y % 400 === 0)) ? 29 : 28;
+  return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] || 0;
+}
+
+function _construirFechaValida(y, mo, d, h, mi, s) {
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  if (mo < 1 || mo > 12) return null;
+  if (d < 1 || d > _diasDelMes(y, mo)) return null;
+  if (h < 0 || h > 23 || mi < 0 || mi > 59 || s < 0 || s > 59) return null;
+  const dt = new Date(y, mo - 1, d, h, mi, s);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function parsearFechaCIE(fechaStr) {
   const s = String(fechaStr || '').trim();
   if (!s) return null;
-  const formatos = [
-    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/, kind: 'ymd' },
-    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2})$/, kind: 'ymd' },
-    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/, kind: 'dmy' },
-    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{1,2})$/, kind: 'dmy' },
-    { re: /^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/, kind: 'dmy' },
-    { re: /^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{1,2})$/, kind: 'dmy' },
-  ];
-  for (const f of formatos) {
-    const m = s.match(f.re);
-    if (!m) continue;
-    let y, mo, d, h = 0, mi = 0;
-    if (f.kind === 'ymd') { y = +m[1]; mo = +m[2]; d = +m[3]; h = +(m[4] || 0); mi = +(m[5] || 0); }
-    else { d = +m[1]; mo = +m[2]; y = +m[3]; h = +(m[4] || 0); mi = +(m[5] || 0); }
-    const dt = new Date(y, mo - 1, d, h, mi, 0);
-    if (!isNaN(dt.getTime())) return dt;
+  let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/))) {
+    return _construirFechaValida(+m[1], +m[2], +m[3], +m[4], +m[5], +m[6]);
   }
-  const dt = new Date(s);
-  if (!isNaN(dt.getTime())) return dt;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2})$/))) {
+    return _construirFechaValida(+m[1], +m[2], +m[3], +m[4], +m[5], 0);
+  }
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/))) {
+    return _construirFechaValida(+m[1], +m[2], +m[3], 0, 0, 0);
+  }
+  const patrones = [
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})[ T](\d{1,2}):(\d{1,2})$/,
+    /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+  ];
+  for (const re of patrones) {
+    if ((m = s.match(re))) {
+      const grupos = m.length;
+      let d = +m[1], mo = +m[2], y = +m[3];
+      let h = grupos > 4 ? (+m[4] || 0) : 0;
+      let mi = grupos > 5 ? (+m[5] || 0) : 0;
+      let se = grupos > 6 ? (+m[6] || 0) : 0;
+      let dt = _construirFechaValida(y, mo, d, h, mi, se);
+      if (!dt) {
+        dt = _construirFechaValida(y, d, mo, h, mi, se);
+        if (dt) logWarn('Fecha ambigua re-interpretada d/m↔m/d', { original: s, interpretada: dt.toISOString() });
+      }
+      if (dt) return dt;
+    }
+  }
   return null;
 }
+
+function normalizarFechaAISO(fechaStr) {
+  const dt = parsearFechaCIE(fechaStr);
+  if (!dt) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+}
+
+const formatearFechaExtraccion = parsearFechaCIE;
 
 function obtenerUltimaFechaExtraccion(row) {
   const directa = textoLimpio(row['Fecha_Extraccion'] || '');
@@ -884,10 +921,17 @@ function renderFechaExtraccion(dt) {
   if (!dt) return '<span class="cie-muted">(sin extracción)</span>';
   try {
     const pad = (n) => String(n).padStart(2, '0');
-    return `${pad(dt.getDate())}-${pad(dt.getMonth() + 1)}-${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
   } catch (e) {
     return htmlEscape(dt.toISOString().replace('T', ' ').slice(0, 16));
   }
+}
+
+function _formatearFechaEsCL(fechaStr) {
+  const dt = parsearFechaCIE(fechaStr);
+  if (!dt) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
 }
 
 function _renderEstablecimientos(valor) {
@@ -943,7 +987,8 @@ function renderHtmlConvenio(row) {
   const region = textoLimpio(row['Sostenedor_Region'] || 'Sin región');
   const sostenedor = textoLimpio(row['Sostenedor_Institucion'] || 'Sin dato');
   const correoSostenedor = textoLimpio(row['Sostenedor_Correo'] || '');
-  const fechaConvenio = textoLimpio(row['Convenio_Fecha'] || 'Sin fecha');
+  const fechaConvenioRaw = textoLimpio(row['Convenio_Fecha'] || 'Sin fecha');
+  const fechaConvenioFmt = _formatearFechaEsCL(fechaConvenioRaw) || fechaConvenioRaw;
   const establecimientosValor = textoLimpio(row['Convenio_Cantidad_Escuelas'] || '');
   const observacion = obtenerUltimaObservacion(row);
   const fechaExtraccion = obtenerUltimaFechaExtraccion(row);
@@ -969,7 +1014,7 @@ function renderHtmlConvenio(row) {
     + `<div class="cie-card-inner"><div class="cie-label">Región</div><div class="cie-value">${htmlEscape(region)}</div></div>`
     + `<div class="cie-card-inner"><div class="cie-label">Nombre sostenedor</div><div class="cie-value">${htmlEscape(sostenedor)}</div></div>`
     + `<div class="cie-card-inner"><div class="cie-label">Correo sostenedor</div><div class="cie-value">${valorHtml(correoSostenedor, '(sin correo)')}</div></div>`
-    + `<div class="cie-card-inner"><div class="cie-label">Fecha convenio</div><div class="cie-value">${htmlEscape(fechaConvenio)}</div></div>`
+    + `<div class="cie-card-inner"><div class="cie-label">Fecha convenio</div><div class="cie-value">${htmlEscape(fechaConvenioFmt)}</div></div>`
     + `<div class="cie-card-inner"><div class="cie-label">EE en la REX</div><div class="cie-value">${estabDetailHtml}</div></div>`
     + `<div class="cie-card-inner"><div class="cie-label">Última observación</div><div class="cie-value">${valorHtml(observacion)}</div></div>`
     + `<div class="cie-card-inner"><div class="cie-label">última actualización</div><div class="cie-value">${renderFechaExtraccion(fechaExtraccion)}</div></div>`
@@ -1032,43 +1077,6 @@ function _prepararDfConveniosVigentes(records) {
   });
 }
 
-function _parsearFechaEnvio(fechaEnvio) {
-  const s = String(fechaEnvio || '').trim();
-  if (!s) return null;
-  const formatos = ['%d/%m/%Y %H:%M:%S', '%d/%m/%Y %H:%M', '%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d', '%m/%d/%Y'];
-  for (const fmt of formatos) {
-    const d = parseDate(s, fmt);
-    if (d) return d;
-  }
-  return null;
-}
-
-function parseDate(str, fmt) {
-  const patterns = {
-    '%d/%m/%Y %H:%M:%S': /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2}):(\d{1,2})$/,
-    '%d/%m/%Y %H:%M': /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/,
-    '%d-%m-%Y %H:%M:%S': /^(\d{1,2})-(\d{1,2})-(\d{4}) (\d{1,2}):(\d{1,2}):(\d{1,2})$/,
-    '%d-%m-%Y %H:%M': /^(\d{1,2})-(\d{1,2})-(\d{4}) (\d{1,2}):(\d{1,2})$/,
-    '%Y-%m-%d %H:%M:%S': /^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2}):(\d{1,2})$/,
-    '%Y-%m-%d %H:%M': /^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2})$/,
-    '%d/%m/%Y': /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-    '%d-%m-%Y': /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
-    '%Y-%m-%d': /^(\d{4})-(\d{1,2})-(\d{1,2})$/,
-    '%m/%d/%Y': /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-  };
-  const re = patterns[fmt];
-  if (!re) return null;
-  const m = str.match(re);
-  if (!m) return null;
-  let y, mo, d, h = 0, mi = 0, s = 0;
-  if (fmt.startsWith('%d')) { d = m[1]; mo = m[2]; y = m[3]; }
-  else if (fmt.startsWith('%Y')) { y = m[1]; mo = m[2]; d = m[3]; }
-  else if (fmt.startsWith('%m')) { mo = m[1]; d = m[2]; y = m[3]; }
-  if (m[4]) { h = m[4]; mi = m[5] || '0'; s = m[6] || '0'; }
-  const date = new Date(parseInt(y), parseInt(mo) - 1, parseInt(d), parseInt(h), parseInt(mi), parseInt(s));
-  return isNaN(date.getTime()) ? null : date;
-}
-
 function _labelConvenio(row) {
   const rex = String(row['Convenio_REX'] || 'Sin REX').trim();
   const idArchivo = String(row['ID_Convenio_Archivo'] || '').trim();
@@ -1081,6 +1089,9 @@ function _labelConvenio(row) {
     if (dias >= 0) {
       if (dias >= 7) label = `${label} - 🚨⚠️ ${estadoMostrado.toUpperCase()} HACE ${dias} DÍAS ⚠️🚨`;
       else label = `${label} - ${estadoMostrado} hace ${dias} días`;
+    } else {
+      label = `${label} - ${estadoMostrado} hace -1 días (Futuro)`;
+      logWarn('Fecha de cambio de estado en el futuro', { convenio: labelBase, estado: estadoMostrado, fechaCambioISO: normalizarFechaAISO(dtCambio), fechaEnvioRaw: textoLimpio(row['Fecha_Envio']) });
     }
   }
   return label;
@@ -1107,7 +1118,7 @@ function _obtenerFechaCambioEstado(row) {
     return null;
   }
   const checkboxEnvio = String(row['Checkbox_Envio'] || '').trim().toUpperCase();
-  const fechaEnvioDt = _parsearFechaEnvio(row['Fecha_Envio']);
+  const fechaEnvioDt = parsearFechaCIE(row['Fecha_Envio']);
   if (checkboxEnvio === 'TRUE' && fechaEnvioDt) return fechaEnvioDt;
   return null;
 }
@@ -1618,7 +1629,7 @@ async function registrarObservacionEnMaestro(spreadsheetId, idRegistro, observac
     }
 
     await apiFetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(hoja, '!A' + (allValues.length + 1)))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(hoja, '!A' + (allValues.length + 1)))}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       { method: 'POST', body: JSON.stringify({ values: [nuevaFila] }) }
     );
     await sleep(obtenerDelayMs());
@@ -1631,7 +1642,7 @@ async function registrarObservacionEnMaestro(spreadsheetId, idRegistro, observac
       const idObsLog = `OBS-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
       const filaObs = [idObsLog, nuevoId, '', formatNow(), observacion, 'Pendiente', '', urlSheet];
       await apiFetch(
-        buildSheetsAppendUrl(spreadsheetId, hojaObsPend, 'A1', 'valueInputOption=USER_ENTERED'),
+        buildSheetsAppendUrl(spreadsheetId, hojaObsPend, 'A1', 'valueInputOption=RAW'),
         { method: 'POST', body: JSON.stringify({ values: [filaObs] }) }
       );
       await sleep(obtenerDelayMs());
@@ -1760,7 +1771,7 @@ async function registrarLogNotificacion(tipoEvento, resultado, detalle, row, des
     const hojaLog = '📧 Log_Notificaciones_CRIE';
     await asegurarHojaLog(maestroId, hojaLog, ['Fecha_Hora', 'Evento', 'Resultado', 'Detalle', 'Destinatario', 'Convenio', 'Region', 'ID_Registro', '', 'Tipo_Error']);
     await apiFetch(
-      buildSheetsAppendUrl(maestroId, hojaLog, 'A1', 'valueInputOption=USER_ENTERED'),
+      buildSheetsAppendUrl(maestroId, hojaLog, 'A1', 'valueInputOption=RAW'),
       { method: 'POST', body: JSON.stringify({ values: [[
         evento.fecha_hora, evento.evento, evento.resultado, evento.detalle,
         evento.destinatario, evento.convenio, evento.region, evento.id_registro, '', evento.tipo_error
@@ -1780,7 +1791,7 @@ async function registrarIngresoNotebook() {
     const ts = formatNow();
     const correo = appState.correoUsuario || 'desconocido';
     await apiFetch(
-      buildSheetsAppendUrl(maestroId, hojaLog, 'A1', 'valueInputOption=USER_ENTERED'),
+      buildSheetsAppendUrl(maestroId, hojaLog, 'A1', 'valueInputOption=RAW'),
         { method: 'POST', body: JSON.stringify({ values: [[ts, correo, 'Interfaz Coordinador Regional', 'OK']] }) }
     );
   } catch (e) { logWarn('log acceso fail', { err: e.message }); }
