@@ -1631,7 +1631,7 @@ async function registrarObservacionEnMaestro(spreadsheetId, idRegistro, observac
       const idObsLog = `OBS-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
       const filaObs = [idObsLog, nuevoId, '', formatNow(), observacion, 'Pendiente', '', urlSheet];
       await apiFetch(
-        buildSheetsAppendUrl(spreadsheetId, hojaObsPend, 'A', 'valueInputOption=USER_ENTERED'),
+        buildSheetsAppendUrl(spreadsheetId, hojaObsPend, 'A1', 'valueInputOption=USER_ENTERED'),
         { method: 'POST', body: JSON.stringify({ values: [filaObs] }) }
       );
       await sleep(obtenerDelayMs());
@@ -1780,8 +1780,8 @@ async function registrarIngresoNotebook() {
     const ts = formatNow();
     const correo = appState.correoUsuario || 'desconocido';
     await apiFetch(
-      buildSheetsAppendUrl(maestroId, hojaLog, 'A', 'valueInputOption=USER_ENTERED'),
-      { method: 'POST', body: JSON.stringify({ values: [[ts, correo, 'Interfaz Coordinador Regional', 'OK']] }) }
+      buildSheetsAppendUrl(maestroId, hojaLog, 'A1', 'valueInputOption=USER_ENTERED'),
+        { method: 'POST', body: JSON.stringify({ values: [[ts, correo, 'Interfaz Coordinador Regional', 'OK']] }) }
     );
   } catch (e) { logWarn('log acceso fail', { err: e.message }); }
 }
