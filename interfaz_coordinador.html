@@ -38,14 +38,14 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 .cie-input { width: 100%; }
 .cie-input--small { width: 130px; }
 .cie-textarea { width: 100%; min-height: 100px; resize: vertical; }
-.cie-select { width: 600px; max-width: 100%; }
+.cie-select { width: 100%; max-width: 100%; }
 .cie-status { font-size: 13px; }
 .cie-status--ok    { color: var(--cie-success); }
 .cie-status--warn  { color: var(--cie-warning); }
 .cie-status--err   { color: var(--cie-danger);  }
 .cie-status--off   { color: var(--cie-muted);   }
 .cie-output { margin: 8px 0; font-family: ui-monospace, 'Cascadia Code', monospace; font-size: 13px; }
-.cie-progress { height: 12px; background: #e8eaed; border-radius: 999px; overflow: hidden; margin: 12px 0; max-width: 600px; }
+.cie-progress { height: 24px; background: #e8eaed; border-radius: 999px; overflow: hidden; margin: 12px 0; max-width: none; width: 100%; }
 .cie-progress-bar { height: 100%; width: 0; background: var(--cie-primary); transition: width .25s ease, background .2s; }
 .cie-progress-bar--err { background: var(--cie-danger); }
 .cie-wrap { font-family: 'Segoe UI', 'Noto Sans', sans-serif; color: #1f2937; }
@@ -118,8 +118,9 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     <div id="output-resumen" class="cie-output"></div>
   </div>
 
-  <p>Selecciona un estado, y luego una REX del convenio CIE</p>
+<p>Selecciona un estado, y luego una REX del convenio CIE</p>
 
+<div class="cie-vbox" style="gap:8px">
   <select id="dropdown-estado" class="cie-select" disabled>
     <option value="">Todos los estados</option>
   </select>
@@ -127,6 +128,9 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   <select id="dropdown-convenios" class="cie-select" disabled>
     <option>Seleccione un convenio...</option>
   </select>
+
+  <button id="btn-excel" class="cie-btn cie-btn--info" disabled>⬇️ Descargar Excel</button>
+</div>
 
   <div id="output-area" class="cie-output"></div>
 
@@ -142,6 +146,8 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="descargar_excel.js"></script>
 <script>
 // =============================================================================
 // CONFIGURACION GLOBAL
@@ -232,6 +238,7 @@ const dropdownEstado = document.getElementById('dropdown-estado');
 const wrapperAcciones = document.getElementById('wrapper-acciones');
 const btnAprobar = document.getElementById('btn-aprobar');
 const btnObservar = document.getElementById('btn-observar');
+const btnExcel = document.getElementById('btn-excel');
 const textareaObservacion = document.getElementById('textarea-observacion');
 
 // =============================================================================
@@ -249,6 +256,7 @@ const appState = {
   regionAutorizada: null,
   dfRegiones: null,
   logNotificacionesEmail: [],
+  transicionesPorConvenio: null,
 };
 
 const DELAY_DEFAULT = 1.5;
@@ -784,6 +792,7 @@ function filtrarPorRegionAutorizada(records, columnaRegion = 'Sostenedor_Region'
 function bloquearInterfazNoAutorizado(mensaje) {
   btnAprobar.disabled = true;
   btnObservar.disabled = true;
+  btnExcel.disabled = true;
   textareaObservacion.disabled = true;
   dropdownConvenios.disabled = true;
   dropdownEstado.disabled = true;
@@ -1066,15 +1075,87 @@ function _labelConvenio(row) {
   const labelBase = idArchivo || rex;
   const estadoMostrado = _mapearEstadoVisual(row);
   let label = `${labelBase} (${estadoMostrado})`;
-  const checkboxEnvio = String(row['Checkbox_Envio'] || '').trim().toUpperCase();
-  const fechaEnvioDt = _parsearFechaEnvio(row['Fecha_Envio']);
-  if (checkboxEnvio === 'TRUE' && fechaEnvioDt) {
-    const dias = Math.floor((Date.now() - fechaEnvioDt.getTime()) / 86400000);
-    if (dias >= 14) label = `${label} - 🚨⚠️ ${estadoMostrado.toUpperCase()} HACE ${dias} DÍAS ⚠️🚨`;
-    else if (dias >= 10) label = `${label} - ${estadoMostrado.toUpperCase()} HACE ${dias} DÍAS`;
-    else label = `${label} - ${estadoMostrado} hace ${dias} días`;
+  const dtCambio = _obtenerFechaCambioEstado(row);
+  if (dtCambio) {
+    const dias = Math.floor((Date.now() - dtCambio.getTime()) / 86400000);
+    if (dias >= 0) {
+      if (dias >= 7) label = `${label} - 🚨⚠️ ${estadoMostrado.toUpperCase()} HACE ${dias} DÍAS ⚠️🚨`;
+      else label = `${label} - ${estadoMostrado} hace ${dias} días`;
+    }
   }
   return label;
+}
+
+function _obtenerFechaCambioEstado(row) {
+  const estadoMostrado = _mapearEstadoVisual(row);
+  if (estadoMostrado === 'No iniciado' || estadoMostrado === 'Aprobado') return null;
+  if (estadoMostrado === 'Iniciado') {
+    const idArchivo = String(row['ID_Convenio_Archivo'] || '').trim();
+    const rex = String(row['Convenio_REX'] || '').trim();
+    const clave = idArchivo || rex;
+    if (clave && appState.transicionesPorConvenio) {
+      const lista = appState.transicionesPorConvenio[clave];
+      if (lista && lista.length > 0) {
+        for (const t of lista) {
+          const estNorm = String(t.estado_nuevo || '').trim().toLowerCase();
+          if (estNorm === 'llenado' || estNorm === 'iniciado') {
+            return formatearFechaExtraccion(t.fecha_hora);
+          }
+        }
+      }
+    }
+    return null;
+  }
+  const checkboxEnvio = String(row['Checkbox_Envio'] || '').trim().toUpperCase();
+  const fechaEnvioDt = _parsearFechaEnvio(row['Fecha_Envio']);
+  if (checkboxEnvio === 'TRUE' && fechaEnvioDt) return fechaEnvioDt;
+  return null;
+}
+
+async function cargarTransicionesEstado() {
+  try {
+    const maestroId = CONFIG_IDS.MAESTRO_ID;
+    if (!maestroId) return;
+    const HOJA_TRANSICIONES = '📅 Transiciones_Estado';
+    const hojas = await listarTitulosHojas(maestroId);
+    if (!hojas.some(h => h.title === HOJA_TRANSICIONES)) {
+      appState.transicionesPorConvenio = {};
+      return;
+    }
+    const values = await leerValoresHoja(maestroId, hojaRange(HOJA_TRANSICIONES, '!A:Z'));
+    if (!values.length) { appState.transicionesPorConvenio = {}; return; }
+    const headers = values[0];
+    const idxId = headers.findIndex(h => String(h || '').trim() === 'ID_Convenio_Archivo');
+    const idxRex = headers.findIndex(h => String(h || '').trim() === 'REX');
+    const idxEst = headers.findIndex(h => String(h || '').trim() === 'Estado_Nuevo');
+    const idxFecha = headers.findIndex(h => String(h || '').trim() === 'Fecha_Hora');
+    if (idxId < 0 || idxEst < 0 || idxFecha < 0) { appState.transicionesPorConvenio = {}; return; }
+    const map = {};
+    for (const fila of values.slice(1)) {
+      const id = String(fila[idxId] || '').trim();
+      const rex = idxRex >= 0 ? String(fila[idxRex] || '').trim() : '';
+      const clave = id || rex;
+      if (!clave) continue;
+      if (!map[clave]) map[clave] = [];
+      map[clave].push({
+        estado_nuevo: String(fila[idxEst] || '').trim(),
+        fecha_hora: String(fila[idxFecha] || '').trim()
+      });
+    }
+    for (const k of Object.keys(map)) {
+      map[k].sort((a, b) => {
+        const da = formatearFechaExtraccion(a.fecha_hora);
+        const db = formatearFechaExtraccion(b.fecha_hora);
+        if (da && db) return da.getTime() - db.getTime();
+        return String(a.fecha_hora).localeCompare(String(b.fecha_hora));
+      });
+    }
+    appState.transicionesPorConvenio = map;
+    logInfo(`transiciones cargadas: ${Object.keys(map).length} convenios`);
+  } catch (e) {
+    logWarn('cargarTransicionesEstado fail', { err: String(e) });
+    appState.transicionesPorConvenio = {};
+  }
 }
 
 // =============================================================================
@@ -1601,8 +1682,8 @@ function construirEmailObservacion(row, observacionTexto) {
   const cuerpo = `<p>Estimado/a<br>${htmlEscape(sostenedor)}<br><u>Presente</u></p>`
     + '<p>Junto con saludar, nos dirigimos a usted en el marco del Convenio de Informática Educativa (CIE) que mantiene vigente con la respectiva Secretaría Regional Ministerial de Educación, N° de REX '
     + `${htmlEscape(convenio)} con fecha ${htmlEscape(fecha)}.</p>`
-    + '<p>Le agradecemos que haya completado el Informe CIE y le informamos que se encuentra OBSERVADO, por el siguiente motivo:</p>'
-    + `<p>${htmlEscape(observacionTexto)}</p>`
+    + '<p>Le agradecemos que haya completado el Informe CIE y le informamos que se encuentra <strong style="background:#fff7c2;color:#8a6d00;padding:1px 4px;border-radius:3px">OBSERVADO</strong>, por el siguiente motivo:</p>'
+    + `<div style="border:4px solid #000;padding:10px;margin:8px 0;background:transparent;font-weight:normal">${htmlEscape(observacionTexto)}</div>`
     + '<p>Solicitamos que subsane o aclare las observaciones realizadas al Informe CIE a la brevedad, dado que el plazo es de diez (10) días hábiles.</p>'
     + `<p>Para realizar las correcciones, usted debe ingresar a <a href="${htmlEscape(urlSheet)}">${htmlEscape(urlSheet)}</a> como la primera vez, y modificar los campos que fueron observados.</p>`
     + '<p>Cordialmente,</p>'
@@ -1620,7 +1701,7 @@ function construirEmailAprobacion(row) {
   const cuerpo = `<p>Estimado/a<br>${htmlEscape(sostenedor)}<br><u>Presente</u></p>`
     + '<p>Junto con saludar, nos dirigimos a usted en el marco del Convenio de Informática Educativa (CIE) que mantiene vigente con la respectiva Secretaría Regional Ministerial de Educación, N° de REX '
     + `${htmlEscape(convenio)} con fecha ${htmlEscape(fecha)}.</p>`
-    + '<p>Le agradecemos que haya completado el Informe CIE y tenemos el agrado de informarle que ha sido revisado y APROBADO.</p>'
+    + '<p>Le agradecemos que haya completado el Informe CIE y tenemos el agrado de informarle que ha sido revisado y <strong style="background:#fff7c2;color:#8a6d00;padding:1px 4px;border-radius:3px">APROBADO</strong>.</p>'
     + '<p>Cordialmente,</p>'
     + `<p>Secretaría Regional Ministerial de Educación Región de ${htmlEscape(region)}</p>`;
   return { asunto, cuerpo };
@@ -2086,8 +2167,17 @@ btnConectar.addEventListener('click', async () => {
 
 btnAprobar.addEventListener('click', onAprobarClick);
 btnObservar.addEventListener('click', onAgregarObservacionClick);
+btnExcel.addEventListener('click', () => {
+  if (typeof window.descargarExcelInformes !== 'function') {
+    print('❌ Función descargarExcelInformes no disponible. Verifique descargar_excel.js');
+    return;
+  }
+  const ok = window.descargarExcelInformes(appState.dfMaestroVigentes, dropdownEstado.value || '');
+  if (ok) print('⬇️ Excel generado con los informes vigentes en memoria.');
+});
 dropdownConvenios.addEventListener('change', onConvenioSeleccionado);
 dropdownEstado.addEventListener('change', async () => {
+  btnExcel.disabled = false;
   wrapperAcciones.style.display = 'none';
   outputArea.innerHTML = '';
   await cargarConveniosDropdown();
@@ -2119,6 +2209,7 @@ async function loginSuccess() {
 
     await registrarIngresoNotebook();
     print('📊 Cargando resumen...');
+    await cargarTransicionesEstado();
     await cargarConveniosDropdown();
     await mostrarResumenAutomatico();
     print('✅ Sistema listo.');

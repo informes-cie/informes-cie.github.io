@@ -1652,6 +1652,7 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
   const datosAProcesar = [];
   const datosOmitidos = [];
   const filasAMarcarObservado = [];
+  const transicionesDetectadas = [];
 
   for (const datos of datosList) {
     const formulario = datos.formulario || {};
@@ -1670,6 +1671,30 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
       datosAProcesar.push(datos);
     } else {
       datosAProcesar.push(datos);
+    }
+    if (verificacion.estado) {
+      const estadoPrevioNorm = String(verificacion.estado).trim();
+      const estaEnviadoC = !!datos.esta_enviado;
+      const tieneDatosC = !!datos.tiene_datos_encuesta;
+      const estadoNuevoC = estaEnviadoC ? 'Enviado' : (tieneDatosC ? 'Llenado' : 'Pendiente');
+      if (estadoPrevioNorm.toLowerCase() !== estadoNuevoC.toLowerCase()) {
+        transicionesDetectadas.push({
+          id_convenio_archivo: idConvenioArchivo,
+          rex: String((formulario['Convenio_REX'] || datos.rex || '')).trim(),
+          estado_previo: estadoPrevioNorm,
+          estado_nuevo: estadoNuevoC
+        });
+      }
+    } else {
+      const estaEnviadoC2 = !!datos.esta_enviado;
+      const tieneDatosC2 = !!datos.tiene_datos_encuesta;
+      const estadoNuevoC2 = estaEnviadoC2 ? 'Enviado' : (tieneDatosC2 ? 'Llenado' : 'Pendiente');
+      transicionesDetectadas.push({
+        id_convenio_archivo: idConvenioArchivo,
+        rex: String((formulario['Convenio_REX'] || datos.rex || '')).trim(),
+        estado_previo: '',
+        estado_nuevo: estadoNuevoC2
+      });
     }
   }
 
@@ -1758,6 +1783,50 @@ async function agregarDatosAMaestro(spreadsheetId, datosList) {
     const pendientes = datosAProcesar.filter(d => !d.tiene_datos_encuesta && !d.esta_enviado).length;
     print(`✅ ${filasNuevas.length} registros agregados al maestro (${encabezadosMaestro.length} columnas)`);
     print(`   📨 Enviados: ${enviados} | ✏️ Llenados: ${llenados} | ⏳ Pendientes: ${pendientes}`);
+
+    // Registrar transiciones de estado en hoja compacta (1 fila por cambio detectado)
+    if (transicionesDetectadas.length > 0) {
+      try {
+        const HOJA_TRANSICIONES = '📅 Transiciones_Estado';
+        const ENCABEZADOS_TRANSICIONES = ['ID_Convenio_Archivo', 'REX', 'Estado_Nuevo', 'Fecha_Hora'];
+        // Verificar si la hoja existe; si no, crearla con encabezados
+        const metaHojas = await apiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`);
+        const titulosHojas = (metaHojas.sheets || []).map(s => (s.properties && s.properties.title) || '');
+        if (!titulosHojas.includes(HOJA_TRANSICIONES)) {
+          await apiFetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                requests: [
+                  { addSheet: { properties: { title: HOJA_TRANSICIONES, gridProperties: { rowCount: 1000, columnCount: 10 } } } }
+                ]
+              })
+            }
+          );
+          await sleep(obtenerDelayMs());
+          await apiFetch(
+            `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(hojaRange(HOJA_TRANSICIONES, '!A1'))}?valueInputOption=USER_ENTERED`,
+            { method: 'PUT', body: JSON.stringify({ values: [ENCABEZADOS_TRANSICIONES] }) }
+          );
+        }
+        await sleep(obtenerDelayMs());
+        const filasTransiciones = transicionesDetectadas.map(t => [
+          t.id_convenio_archivo || '',
+          t.rex || '',
+          t.estado_nuevo || '',
+          formatNow()
+        ]);
+        const safeHojaTrans = hojaRange(HOJA_TRANSICIONES);
+        await apiFetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(safeHojaTrans + '!A:append')}?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+          { method: 'POST', body: JSON.stringify({ values: filasTransiciones }) }
+        );
+        print(`   🔀 ${filasTransiciones.length} transiciones de estado registradas en '${HOJA_TRANSICIONES}'`);
+      } catch (eTrans) {
+        print(`   ⚠️ No se pudo registrar transiciones de estado: ${eTrans.message}`);
+      }
+    }
 
     // Batch: "Observado" markings + invalidate old valid rows (except APROBADO)
     const idsConvenioAProcesar = [...new Set(datosAProcesar.map(d => d.id_convenio_archivo).filter(Boolean))];
