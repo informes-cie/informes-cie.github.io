@@ -103,6 +103,7 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     <label>Delay entre llamadas (s) <input type="number" id="input-api-delay" class="cie-input cie-input--small" value="1.5" min="0.1" step="0.1" max="60"></label>
     <span id="delay-rate-info" class="cie-status cie-status--off" style="margin-left:8px;"></span>
     <button id="btn-leer-sheets" class="cie-btn cie-btn--info" disabled>📖 Leer Informes CIE</button>
+    <button id="btn-procesar-iniciados-legacy" class="cie-btn cie-btn--warning" disabled>🧹 Procesar iniciados (Legacy, no tocar)</button>
     <button id="btn-pausar-batch" class="cie-btn cie-btn--warning" disabled>⏸️ Pausar</button>
     <button id="btn-reconectar" class="cie-btn cie-btn--danger" style="display:none;">🔌 Reconectar</button>
   </div>
@@ -222,6 +223,7 @@ const btnConectar = document.getElementById('btn-conectar');
 const loginStatus = document.getElementById('login-status');
 const loginOutput = document.getElementById('login-output');
 const btnLeerSheets = document.getElementById('btn-leer-sheets');
+const btnProcesarIniciadosLegacy = document.getElementById('btn-procesar-iniciados-legacy');
 const intBatchSize = document.getElementById('int-batch-size');
 const intStartAt = document.getElementById('int-start-at');
 const inputApiDelay = document.getElementById('input-api-delay');
@@ -2019,6 +2021,209 @@ function setProgress(value, max, text) {
 // =============================================================================
 // MAIN HANDLERS
 // =============================================================================
+async function _leerTransicionesExistentes(maestroId) {
+  const HOJA_TRANSICIONES = '📅 Transiciones_Estado';
+  const metaHojas = await apiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${maestroId}?fields=sheets.properties.title`);
+  const titulosHojas = (metaHojas.sheets || []).map(s => (s.properties && s.properties.title) || '');
+  if (!titulosHojas.includes(HOJA_TRANSICIONES)) {
+    return { existe: false, idsConLlenado: new Set(), encabezados: null, todas: [] };
+  }
+  await sleep(obtenerDelayMs());
+  const allTrans = await leerValoresHoja(maestroId, hojaRange(HOJA_TRANSICIONES));
+  if (!allTrans.length) {
+    return { existe: true, idsConLlenado: new Set(), encabezados: [], todas: [] };
+  }
+  const headers = (allTrans[0] || []).map(h => String(h || '').trim());
+  const idxId = headers.findIndex(h => h === 'ID_Convenio_Archivo');
+  const idxEst = headers.findIndex(h => h === 'Estado_Nuevo');
+  const idsConLlenado = new Set();
+  for (let i = 1; i < allTrans.length; i++) {
+    const row = allTrans[i];
+    if (idxId < 0) continue;
+    const idConv = String(row[idxId] || '').trim();
+    const est = idxEst >= 0 ? String(row[idxEst] || '').trim().toLowerCase() : '';
+    if (idConv && est === 'llenado') idsConLlenado.add(idConv);
+  }
+  return { existe: true, idsConLlenado, encabezados: headers, todas: allTrans };
+}
+
+async function _asegurarHojaTransiciones(maestroId) {
+  const HOJA_TRANSICIONES = '📅 Transiciones_Estado';
+  const ENCABEZADOS_TRANSICIONES = ['ID_Convenio_Archivo', 'REX', 'Estado_Nuevo', 'Fecha_Hora'];
+  const metaHojas = await apiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${maestroId}?fields=sheets.properties.title`);
+  const titulosHojas = (metaHojas.sheets || []).map(s => (s.properties && s.properties.title) || '');
+  if (!titulosHojas.includes(HOJA_TRANSICIONES)) {
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}:batchUpdate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          requests: [
+            { addSheet: { properties: { title: HOJA_TRANSICIONES, gridProperties: { rowCount: 1000, columnCount: 10 } } } }
+          ]
+        })
+      }
+    );
+    await sleep(obtenerDelayMs());
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}/values/${encodeURIComponent(hojaRange(HOJA_TRANSICIONES, '!A1'))}?valueInputOption=USER_ENTERED`,
+      { method: 'PUT', body: JSON.stringify({ values: [ENCABEZADOS_TRANSICIONES] }) }
+    );
+  }
+}
+
+async function procesarIniciadosLegacy() {
+  if (appState.batchEnCurso) {
+    print('⚠️ Hay una corrida en curso. Espere a que termine o pause.');
+    return;
+  }
+  const maestroId = CONFIG_IDS.MAESTRO_ID;
+  if (!maestroId) {
+    print('❌ No hay maestro configurado. Conéctese primero.');
+    return;
+  }
+  clearOutput();
+  btnProcesarIniciadosLegacy.disabled = true;
+  btnProcesarIniciadosLegacy.textContent = '⏳ Procesando...';
+  appState.batchEnCurso = true;
+  appState.batchPausado = false;
+  fallosConsecutivos = 0;
+  detenerAlarmaError();
+
+  const regionFiltro = selectRegionFiltro.value || '__TODAS__';
+  const HOJA_TRANSICIONES = '📅 Transiciones_Estado';
+  let agregadas = 0;
+  let omitidasFiltroRegion = 0;
+
+  try {
+    const hoja = appState.hojaMaestra || 'Sheet1';
+    print(`🧹 Procesar iniciados (Legacy) — región: ${regionFiltro === '__TODAS__' ? 'Todas' : regionFiltro}`);
+    print(`⏱️ Delay entre llamadas: ${obtenerDelaySegundos()}s`);
+
+    print('📥 Leyendo maestro completo (histórico + vigentes)...');
+    await sleep(obtenerDelayMs());
+    const allValues = await leerValoresHoja(maestroId, hojaRange(hoja));
+    if (!allValues.length) { print('⚠️ Maestro vacío. Nada que procesar.'); return; }
+    const encabezados = allValues[0];
+    const idxId = obtenerIndiceColumna(encabezados, 'ID_Convenio_Archivo');
+    const idxFilaValida = obtenerIndiceColumna(encabezados, 'Fila_Valida');
+    const idxEstado = obtenerIndiceColumna(encabezados, 'Estado_Registro');
+    const idxNumObs = obtenerIndiceColumna(encabezados, 'Numero_Observacion');
+    const idxFecha = obtenerIndiceColumna(encabezados, 'Fecha_Extraccion');
+    const idxRex = obtenerIndiceColumna(encabezados, 'Convenio_REX');
+    const idxRegion = obtenerIndiceColumna(encabezados, 'Sostenedor_Region');
+    if (idxId === null || idxFilaValida === null || idxEstado === null) {
+      throw new Error('El maestro no tiene las columnas críticas (ID_Convenio_Archivo, Fila_Valida, Estado_Registro).');
+    }
+    print(`   ${allValues.length - 1} filas leídas, ${encabezados.length} columnas.`);
+
+    // 1) Indexar la PRIMERA fila histórica (la más antigua) en estado Llenado por convenio (obs=0).
+    //    "Primera" = menor row (asumimos orden cronológico de extracción). Usamos la fila más antigua.
+    const primerLlenadoPorConvenio = new Map();
+    for (let i = 1; i < allValues.length; i++) {
+      const row = allValues[i];
+      const estado = String(row[idxEstado] || '').trim();
+      if (estado.toUpperCase() !== 'LLENADO') continue;
+      if (idxNumObs !== null) {
+        const numObs = parseInt(row[idxNumObs], 10) || 0;
+        if (numObs !== 0) continue;
+      }
+      const idConv = String(row[idxId] || '').trim();
+      if (!idConv) continue;
+      const regionDetectada = idxRegion !== null ? String(row[idxRegion] || '').trim() : '';
+      if (!regionCoincideFiltro(regionDetectada, regionFiltro)) continue;
+      if (!primerLlenadoPorConvenio.has(idConv)) {
+        primerLlenadoPorConvenio.set(idConv, {
+          id_convenio_archivo: idConv,
+          rex: idxRex !== null ? String(row[idxRex] || '').trim() : '',
+          fecha_extraccion: idxFecha !== null ? String(row[idxFecha] || '').trim() : '',
+          fila_num: i + 1,
+        });
+      }
+    }
+
+    print(`📋 Convenios con estado Llenado (obs=0) en el maestro: ${primerLlenadoPorConvenio.size}`);
+    if (primerLlenadoPorConvenio.size === 0) {
+      print('✅ No hay convenios en estado Llenado. Nada que procesar.');
+      return;
+    }
+
+    // 2) Leer transiciones existentes y filtrar los que ya tienen Llenado.
+    print('📥 Leyendo transiciones existentes...');
+    const transiciones = await _leerTransicionesExistentes(maestroId);
+    const yaConLlenado = transiciones.idsConLlenado;
+
+    const faltantes = [];
+    for (const [idConv, info] of primerLlenadoPorConvenio) {
+      if (yaConLlenado.has(idConv)) continue;
+      faltantes.push(info);
+    }
+    print(`   ${yaConLlenado.size} convenios ya tienen transición a Llenado.`);
+    print(`   ${faltantes.length} convenios faltantes por registrar.`);
+
+    if (faltantes.length === 0) {
+      print('✅ Todos los iniciados ya tienen su transición a Llenado registrada. Nada que hacer.');
+      return;
+    }
+
+    // 3) Asegurar hoja y escribir filas faltantes (Fecha_Hora = Fecha_Extracción de la primera fila Llenado).
+    await _asegurarHojaTransiciones(maestroId);
+    await sleep(obtenerDelayMs());
+
+    const filasNuevas = faltantes.map(t => [
+      t.id_convenio_archivo || '',
+      t.rex || '',
+      'Llenado',
+      t.fecha_extraccion || formatNow(),
+    ]);
+
+    setProgress(0, filasNuevas.length, 'Escribiendo transiciones legacy...');
+    print(`✏️ Escribiendo ${filasNuevas.length} transiciones legacy a '${HOJA_TRANSICIONES}'...`);
+    await sleep(obtenerDelayMs());
+    const safeHojaTrans = hojaRange(HOJA_TRANSICIONES);
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${maestroId}/values/${encodeURIComponent(safeHojaTrans + '!A:append')}?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      { method: 'POST', body: JSON.stringify({ values: filasNuevas }) }
+    );
+    agregadas = filasNuevas.length;
+    print(`✅ ${agregadas} transiciones Llenado registradas (Fecha_Hora = primera Fecha_Extracción Llenado del histórico).`);
+
+    // Resumen de omitidos por región (informativo)
+    let totalVigentesLlenado = 0;
+    for (let i = 1; i < allValues.length; i++) {
+      const row = allValues[i];
+      if (String(row[idxEstado] || '').trim().toUpperCase() !== 'LLENADO') continue;
+      if (idxFilaValida !== null && String(row[idxFilaValida] || '').trim().toLowerCase() !== 'valid') continue;
+      if (idxNumObs !== null && (parseInt(row[idxNumObs], 10) || 0) !== 0) continue;
+      totalVigentesLlenado++;
+    }
+    const fueraRegion = totalVigentesLlenado - primerLlenadoPorConvenio.size;
+    if (regionFiltro !== '__TODAS__' && fueraRegion > 0) {
+      print(`⏭️ ${fueraRegion} convenios Llenado omitidos por filtro de región (no se procesaron ni se verificaron).`);
+      omitidasFiltroRegion = fueraRegion;
+    }
+
+    print('✅ Proceso legacy completado.');
+  } catch (e) {
+    print(`❌ Error: ${e.message}`);
+    console.error(e);
+    iniciarAlarmaError();
+    appState.errorFatal = true;
+    btnReconectar.style.display = '';
+    btnReconectar.disabled = false;
+  } finally {
+    if (!appState.errorFatal) {
+      appState.batchEnCurso = false;
+      appState.batchPausado = false;
+      btnProcesarIniciadosLegacy.disabled = false;
+      btnProcesarIniciadosLegacy.textContent = '🧹 Procesar iniciados (Legacy, no tocar)';
+    } else {
+      btnProcesarIniciadosLegacy.disabled = true;
+      btnProcesarIniciadosLegacy.textContent = '⏸️ En pausa por error';
+    }
+  }
+}
+
 async function onLoginSuccess() {
   try {
     await initGis();
@@ -2026,6 +2231,7 @@ async function onLoginSuccess() {
     const maestroId = await crearObtenerMaestro();
     await compartirRecursosConDominio(maestroId, true);
     btnLeerSheets.disabled = false;
+    btnProcesarIniciadosLegacy.disabled = false;
     setLoginStatus('ok', '🟢 Conectado');
     print('✅ Sistema listo para leer informes CIE');
   } catch (e) {
@@ -2050,6 +2256,7 @@ btnConectar.addEventListener('click', async () => {
 });
 
 btnLeerSheets.addEventListener('click', () => ejecutarLecturaSheets());
+btnProcesarIniciadosLegacy.addEventListener('click', () => procesarIniciadosLegacy());
 
 async function ejecutarLecturaSheets() {
   if (appState.batchEnCurso) {
