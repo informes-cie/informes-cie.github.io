@@ -1192,11 +1192,12 @@ async function obtenerHojasDelSheet(spreadsheetId) {
 }
 
 async function _listarSubcarpetasRecursivo(folderId) {
-  const pendientes = [folderId];
+  const pendientes = [{ id: folderId, name: '' }];
   const visitados = new Set();
-  const carpetas = new Set([folderId]);
+  const carpetas = new Map();
+  carpetas.set(folderId, '');
   while (pendientes.length > 0) {
-    const fid = pendientes.shift();
+    const { id: fid, name: nombrePadre } = pendientes.shift();
     if (visitados.has(fid)) continue;
     visitados.add(fid);
     const q = `'${fid}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
@@ -1206,25 +1207,30 @@ async function _listarSubcarpetasRecursivo(folderId) {
       if (pageToken) params.set('pageToken', pageToken);
       const results = await apiFetch(`https://www.googleapis.com/drive/v3/files?${params}`);
       for (const item of (results.files || [])) {
-        if (item.id && !carpetas.has(item.id)) { carpetas.add(item.id); pendientes.push(item.id); }
+        if (item.id && !carpetas.has(item.id)) {
+          carpetas.set(item.id, item.name || '');
+          pendientes.push({ id: item.id, name: item.name || '' });
+        }
       }
       pageToken = results.nextPageToken || null;
     } while (pageToken);
   }
-  return [...carpetas];
+  return carpetas;
 }
 
 async function listarSheetsEnCarpeta(carpetaId) {
-  const folderIds = await _listarSubcarpetasRecursivo(carpetaId);
+  const carpetaPorId = await _listarSubcarpetasRecursivo(carpetaId);
   const sheets = [];
-  for (const fid of folderIds) {
+  for (const [fid, nombreCarpeta] of carpetaPorId) {
     const q = `'${fid}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
     let pageToken = null;
     do {
       const params = new URLSearchParams({ q, spaces: 'drive', fields: 'nextPageToken,files(id,name,createdTime,modifiedTime)', includeItemsFromAllDrives: 'true', supportsAllDrives: 'true', pageSize: '200' });
       if (pageToken) params.set('pageToken', pageToken);
       const results = await apiFetch(`https://www.googleapis.com/drive/v3/files?${params}`);
-      sheets.push(...(results.files || []));
+      for (const item of (results.files || [])) {
+        sheets.push({ ...item, carpeta_nombre: nombreCarpeta || '' });
+      }
       pageToken = results.nextPageToken || null;
     } while (pageToken);
   }
@@ -2323,9 +2329,10 @@ async function ejecutarLecturaSheets() {
       const sheetInfo = listToProcess[idx];
       const nombreSheet = sheetInfo.name || `sheet_${idx + 1}`;
       const idSheet = sheetInfo.id;
+      const carpetaNombre = sheetInfo.carpeta_nombre || '';
       const idxAbsoluto = startIdx + idx + 1;
 
-      const regionDetectada = parsearRegionDeNombreArchivo(nombreSheet);
+      const regionDetectada = carpetaNombre ? (canonizarRegion(carpetaNombre) || parsearRegionDeNombreArchivo(nombreSheet)) : parsearRegionDeNombreArchivo(nombreSheet);
       if (!regionCoincideFiltro(regionDetectada, regionFiltro)) {
         saltadosPorRegion++;
         print(`   ⏭️ #${idxAbsoluto} saltado por región (detectada: ${regionDetectada || 'desconocida'}): ${nombreSheet}`);
@@ -2339,7 +2346,7 @@ async function ejecutarLecturaSheets() {
       try {
         const fileStart = Date.now();
         setProgress(idxAbsoluto, sheetsList.length, `Procesando: ${nombreSheet} — Restantes: ${sheetsList.length - idxAbsoluto}`);
-        const [datosLista, diag] = await extraerDatosInforme(idSheet, null, null, nombreSheet, true);
+        const [datosLista, diag] = await extraerDatosInforme(idSheet, null, carpetaNombre, nombreSheet, true);
         const estadoArchivo = diag.omitido ? 'OMITIDO' : (diag.registros_error > 0 && diag.registros_error === diag.registros_extraidos ? 'ERROR' : 'LEIDO');
         reporteArchivos.push({ archivo: nombreSheet, estado: estadoArchivo });
 
