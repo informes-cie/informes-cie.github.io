@@ -2123,9 +2123,36 @@ async function procesarIniciadosLegacy() {
     }
     print(`   ${allValues.length - 1} filas leídas, ${encabezados.length} columnas.`);
 
+    // Diagnóstico: distribución de estados y obs en el maestro
+    const diagEstados = {};
+    let diagObs0Llenado = 0;
+    let diagObs0LlenadoRegionVacia = 0;
+    for (let i = 1; i < allValues.length; i++) {
+      const row = allValues[i];
+      const est = String(row[idxEstado] || '').trim();
+      const estKey = est || '(vacío)';
+      diagEstados[estKey] = (diagEstados[estKey] || 0) + 1;
+      if (est.toUpperCase() === 'LLENADO') {
+        const numObs = idxNumObs !== null ? (parseInt(row[idxNumObs], 10) || 0) : 0;
+        if (numObs === 0) {
+          diagObs0Llenado++;
+          const reg = idxRegion !== null ? String(row[idxRegion] || '').trim() : '';
+          if (!reg) diagObs0LlenadoRegionVacia++;
+        }
+      }
+    }
+    print(`   Distribución Estado_Registro: ${Object.entries(diagEstados).map(([k,v]) => `${k}=${v}`).join(', ')}`);
+    print(`   Filas Llenado obs=0 (total, sin filtro región): ${diagObs0Llenado}`);
+    if (regionFiltro !== '__TODAS__') {
+      print(`   Filas Llenado obs=0 con Sostenedor_Region vacío (legacy, se incluirán): ${diagObs0LlenadoRegionVacia}`);
+    }
+
     // 1) Indexar la PRIMERA fila histórica (la más antigua) en estado Llenado por convenio (obs=0).
     //    "Primera" = menor row (asumimos orden cronológico de extracción). Usamos la fila más antigua.
+    //    Legacy: si Sostenedor_Region está vacío, lo incluimos aunque haya filtro de región
+    //    (no podemos saber su región, mejor no perderlo).
     const primerLlenadoPorConvenio = new Map();
+    let saltadosFiltroRegionEstricto = 0;
     for (let i = 1; i < allValues.length; i++) {
       const row = allValues[i];
       const estado = String(row[idxEstado] || '').trim();
@@ -2137,7 +2164,10 @@ async function procesarIniciadosLegacy() {
       const idConv = String(row[idxId] || '').trim();
       if (!idConv) continue;
       const regionDetectada = idxRegion !== null ? String(row[idxRegion] || '').trim() : '';
-      if (!regionCoincideFiltro(regionDetectada, regionFiltro)) continue;
+      if (regionDetectada && !regionCoincideFiltro(regionDetectada, regionFiltro)) {
+        saltadosFiltroRegionEstricto++;
+        continue;
+      }
       if (!primerLlenadoPorConvenio.has(idConv)) {
         primerLlenadoPorConvenio.set(idConv, {
           id_convenio_archivo: idConv,
@@ -2146,6 +2176,9 @@ async function procesarIniciadosLegacy() {
           fila_num: i + 1,
         });
       }
+    }
+    if (regionFiltro !== '__TODAS__' && saltadosFiltroRegionEstricto > 0) {
+      print(`   ⏭️ ${saltadosFiltroRegionEstricto} filas Llenado saltadas por región distinta a '${regionFiltro}'.`);
     }
 
     print(`📋 Convenios con estado Llenado (obs=0) en el maestro: ${primerLlenadoPorConvenio.size}`);
