@@ -25,8 +25,13 @@
       return false;
     }
 
-    // Mapear Estado_Registro -> etiqueta visual (igual que la interfaz)
+    // Mapear Estado_Registro -> etiqueta visual (igual que las cards del Resumen).
+    // Delega en _mapearEstadoVisual del HTML (misma fuente que el resumen y dropdown);
+    // mantiene fallback standalone si descargar_excel.js se usa fuera de la interfaz.
     const mapearEstadoVisual = function (row) {
+      if (typeof window._mapearEstadoVisual === 'function') {
+        return window._mapearEstadoVisual(row);
+      }
       const estadoNorm = String(row['Estado_Registro'] || '').trim().toLowerCase();
       const ultimaObs = '';
       const esEnviadoConObs = estadoNorm === 'enviado' && Boolean(String(ultimaObs || '').trim());
@@ -43,10 +48,8 @@
     if (estadoFiltro) {
       filas = dfVigentes.filter(function (r) { return mapearEstadoVisual(r) === estadoFiltro; });
     }
-    if (filas.length === 0) {
-      alert('No hay informes para el estado seleccionado: ' + estadoFiltro);
-      return false;
-    }
+    // Nota: si filas.length === 0 (tarjeta del resumen en 0) se genera igualmente
+    // el Excel con sólo encabezados, para respetar el conteo de la tarjeta.
 
     // Columnas a exportar, en orden: [key interna en el maestro, encabezado en el Excel]
     const COLUMNAS_EXPORT = [
