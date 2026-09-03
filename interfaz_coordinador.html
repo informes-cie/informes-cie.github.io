@@ -1693,8 +1693,8 @@ function construirEmailObservacion(row, observacionTexto) {
   const cuerpo = `<p>Estimado/a<br>${htmlEscape(sostenedor)}<br><u>Presente</u></p>`
     + '<p>Junto con saludar, nos dirigimos a usted en el marco del Convenio de Informática Educativa (CIE) que mantiene vigente con la respectiva Secretaría Regional Ministerial de Educación, N° de REX '
     + `${htmlEscape(convenio)} con fecha ${htmlEscape(fecha)}.</p>`
-    + '<p>Le agradecemos que haya completado el Informe CIE y le informamos que se encuentra <strong style="background:#fff7c2;color:#8a6d00;padding:1px 4px;border-radius:3px">OBSERVADO</strong>, por el siguiente motivo:</p>'
-    + `<div style="border:4px solid #000;padding:10px;margin:8px 0;background:transparent;font-weight:normal">${htmlEscape(observacionTexto)}</div>`
+    + '<p>Le agradecemos que haya completado el Informe CIE y le informamos que se encuentra <strong style="background:#fff9c4;color:#000000;font-weight:bold;padding:1px 4px;border-radius:3px">Observado</strong>, por el siguiente motivo:</p>'
+    + `<div style="border:1px solid #000;padding:10px;margin:8px 0;background:transparent;font-weight:normal">${htmlEscape(observacionTexto)}</div>`
     + '<p>Solicitamos que subsane o aclare las observaciones realizadas al Informe CIE a la brevedad, dado que el plazo es de diez (10) días hábiles.</p>'
     + `<p>Para realizar las correcciones, usted debe ingresar a <a href="${htmlEscape(urlSheet)}">${htmlEscape(urlSheet)}</a> como la primera vez, y modificar los campos que fueron observados.</p>`
     + '<p>Cordialmente,</p>'
@@ -1712,7 +1712,7 @@ function construirEmailAprobacion(row) {
   const cuerpo = `<p>Estimado/a<br>${htmlEscape(sostenedor)}<br><u>Presente</u></p>`
     + '<p>Junto con saludar, nos dirigimos a usted en el marco del Convenio de Informática Educativa (CIE) que mantiene vigente con la respectiva Secretaría Regional Ministerial de Educación, N° de REX '
     + `${htmlEscape(convenio)} con fecha ${htmlEscape(fecha)}.</p>`
-    + '<p>Le agradecemos que haya completado el Informe CIE y tenemos el agrado de informarle que ha sido revisado y <strong style="background:#fff7c2;color:#8a6d00;padding:1px 4px;border-radius:3px">APROBADO</strong>.</p>'
+    + '<p>Le agradecemos que haya completado el Informe CIE y tenemos el agrado de informarle que ha sido revisado y <strong style="background:#fff9c4;color:#000000;font-weight:bold;padding:1px 4px;border-radius:3px">Aprobado</strong>.</p>'
     + '<p>Cordialmente,</p>'
     + `<p>Secretaría Regional Ministerial de Educación Región de ${htmlEscape(region)}</p>`;
   return { asunto, cuerpo };

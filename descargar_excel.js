@@ -48,25 +48,41 @@
       return false;
     }
 
-    // Construir conjunto ordenado de columnas a partir de todas las keys presentes
-    const setCols = new Set();
-    for (const row of dfVigentes) {
-      for (const k of Object.keys(row)) {
-        if (k.startsWith('__')) continue; // omitir campos internos (__id_key, __num_obs, etc.)
-        setCols.add(k);
-      }
-    }
-    const columnas = Array.from(setCols).sort();
+    // Columnas a exportar, en orden: [key interna en el maestro, encabezado en el Excel]
+    const COLUMNAS_EXPORT = [
+      ['Estado_Visual', 'Estado Visual'],
+      ['Fecha_Envio', 'Fecha Envío'],
+      ['Sostenedor_Institucion', 'Sostenedor Institución'],
+      ['Sostenedor_RUT', 'Sostenedor Rut'],
+      ['Sostenedor_Correo', 'Sostenedor Correo'],
+      ['Sostenedor_Region', 'Sostenedor Región'],
+      ['Convenio_REX', 'Convenio REX'],
+      ['Convenio_Fecha', 'Convenio Fecha'],
+    ];
 
-    // Agregar columna derivada "Estado_Visual" al inicio
-    if (!columnas.includes('Estado_Visual')) columnas.unshift('Estado_Visual');
+    // Formatear fecha a dd/mm/aaaa (texto plano) cuando se pueda parsear
+    const formatearFechaCelda = function (valor) {
+      const s = String(valor === null || valor === undefined ? '' : valor).trim();
+      if (!s) return '';
+      const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (m) {
+        return m[3].padStart(2, '0') + '/' + m[2].padStart(2, '0') + '/' + m[1];
+      }
+      const m2 = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+      if (m2) {
+        return m2[1].padStart(2, '0') + '/' + m2[2].padStart(2, '0') + '/' + m2[3];
+      }
+      return s;
+    };
 
     // Construir array de arrays (primera fila = encabezados)
+    const columnas = COLUMNAS_EXPORT.map(function (c) { return c[1]; });
     const aoa = [columnas];
     for (const row of filas) {
-      const fila = columnas.map(function (col) {
-        if (col === 'Estado_Visual') return mapearEstadoVisual(row);
-        const v = row[col];
+      const fila = COLUMNAS_EXPORT.map(function (col) {
+        if (col[0] === 'Estado_Visual') return mapearEstadoVisual(row);
+        if (col[0] === 'Fecha_Envio') return formatearFechaCelda(row[col[0]]);
+        const v = row[col[0]];
         if (v === null || v === undefined) return '';
         return String(v);
       });
