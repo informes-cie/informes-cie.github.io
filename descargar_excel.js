@@ -61,6 +61,7 @@
       ['Sostenedor_Region', 'Sostenedor Región'],
       ['Convenio_REX', 'Convenio REX'],
       ['Convenio_Fecha', 'Convenio Fecha'],
+      ['URL_Sheet', 'Enlace Informe'],
     ];
 
     // Formatear fecha a dd/mm/aaaa (texto plano) cuando se pueda parsear
@@ -85,6 +86,7 @@
       const fila = COLUMNAS_EXPORT.map(function (col) {
         if (col[0] === 'Estado_Visual') return mapearEstadoVisual(row);
         if (col[0] === 'Fecha_Envio') return formatearFechaCelda(row[col[0]]);
+        if (col[0] === 'URL_Sheet') return String(row['URL_Sheet'] || row['Spreadsheet_URL'] || '');
         const v = row[col[0]];
         if (v === null || v === undefined) return '';
         return String(v);
