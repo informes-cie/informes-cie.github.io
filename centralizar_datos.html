@@ -402,47 +402,74 @@ let __lastApiCallTs = 0;
 
 const RETRY_DELAY_FIJO_MS = 5000;
 const RETRY_MAX_REINTENTOS = 3;
+const RETRY_MAX_CICLOS_401 = 3;
+const FETCH_TIMEOUT_MS = 90 * 1000;
 const LLAMADAS_POR_ARCHIVO = 2;
 const LLAMADAS_POR_BATCH = 4;
 const UMBRAL_FALLOS_CONSECUTIVOS = 3;
 let fallosConsecutivos = 0;
 
-const alarmState = { active: false, ctx: null, osc: null, gain: null, interval: null };
+const ALARMA_TITULO_BASE = document.title;
+const alarmState = { active: false, ctx: null, osc: null, gain: null, interval: null, tituloInterval: null };
+let alarmAudioCtxPrimed = null;
+
+function primarAudioContext() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!alarmAudioCtxPrimed || alarmAudioCtxPrimed.state === 'closed') {
+      alarmAudioCtxPrimed = new AudioCtx();
+    }
+    if (alarmAudioCtxPrimed.state === 'suspended') alarmAudioCtxPrimed.resume().catch(() => {});
+  } catch (e) {}
+}
+
+function alternarTituloAlarma() {
+  document.title = document.title === ALARMA_TITULO_BASE
+    ? '🚨 ALERTA — Centralizar Datos CIE'
+    : ALARMA_TITULO_BASE;
+}
 
 function iniciarAlarmaError() {
   if (alarmState.active) return;
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'square';
-    gain.gain.value = 0.12;
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    const F_SIRENA_BAJA = 700;
-    const F_SIRENA_ALTA = 1050;
-    const RAMP_SIRENA_MS = 750;
-    osc.frequency.setValueAtTime(F_SIRENA_BAJA, ctx.currentTime);
-    let subiendo = true;
-    const cicloSirena = () => {
-      const ahora = ctx.currentTime;
-      const desde = subiendo ? F_SIRENA_BAJA : F_SIRENA_ALTA;
-      const hacia = subiendo ? F_SIRENA_ALTA : F_SIRENA_BAJA;
-      osc.frequency.cancelScheduledValues(ahora);
-      osc.frequency.setValueAtTime(desde, ahora);
-      osc.frequency.linearRampToValueAtTime(hacia, ahora + RAMP_SIRENA_MS / 1000);
-      subiendo = !subiendo;
-    };
-    cicloSirena();
-    const interval = setInterval(cicloSirena, RAMP_SIRENA_MS);
-    alarmState.active = true;
-    alarmState.ctx = ctx;
-    alarmState.osc = osc;
-    alarmState.gain = gain;
-    alarmState.interval = interval;
+    if (AudioCtx) {
+      let ctx = alarmAudioCtxPrimed;
+      if (!ctx || ctx.state === 'closed') ctx = new AudioCtx();
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      gain.gain.value = 0.12;
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      const F_SIRENA_BAJA = 700;
+      const F_SIRENA_ALTA = 1050;
+      const RAMP_SIRENA_MS = 750;
+      osc.frequency.setValueAtTime(F_SIRENA_BAJA, ctx.currentTime);
+      let subiendo = true;
+      const cicloSirena = () => {
+        const ahora = ctx.currentTime;
+        const desde = subiendo ? F_SIRENA_BAJA : F_SIRENA_ALTA;
+        const hacia = subiendo ? F_SIRENA_BAJA : F_SIRENA_ALTA;
+        osc.frequency.cancelScheduledValues(ahora);
+        osc.frequency.setValueAtTime(desde, ahora);
+        osc.frequency.linearRampToValueAtTime(hacia, ahora + RAMP_SIRENA_MS / 1000);
+        subiendo = !subiendo;
+      };
+      cicloSirena();
+      const interval = setInterval(cicloSirena, RAMP_SIRENA_MS);
+      alarmState.active = true;
+      alarmState.ctx = ctx;
+      alarmState.osc = osc;
+      alarmState.gain = gain;
+      alarmState.interval = interval;
+    }
+    if (!alarmState.tituloInterval) {
+      alternarTituloAlarma();
+      alarmState.tituloInterval = setInterval(alternarTituloAlarma, 1000);
+    }
   } catch (e) { console.warn('No se pudo iniciar alarma', e); }
 }
 
@@ -453,6 +480,8 @@ function detenerAlarmaError() {
     if (alarmState.osc) try { alarmState.osc.stop(); } catch (e) {}
     if (alarmState.ctx) try { alarmState.ctx.close(); } catch (e) {}
   } catch (e) {}
+  if (alarmState.tituloInterval) { clearInterval(alarmState.tituloInterval); alarmState.tituloInterval = null; }
+  document.title = ALARMA_TITULO_BASE;
   alarmState.active = false;
   alarmState.ctx = null;
   alarmState.osc = null;
@@ -476,6 +505,40 @@ function registrarExito() {
   }
   fallosConsecutivos = 0;
   if (alarmState.active) detenerAlarmaError();
+}
+
+// =============================================================================
+// WATCHDOG DE ESTANCAMIENTO (liviano: 1 tick/30s, ~0 CPU, sin buffers)
+// =============================================================================
+const WATCHDOG_TICK_MS = 30000;
+const WATCHDOG_UMBRAL_MS = 5 * 60 * 1000;
+const watchdogState = { lastProgresoMs: 0, timer: null };
+
+function watchdogMarcarProgreso() {
+  watchdogState.lastProgresoMs = Date.now();
+}
+
+function watchdogTick() {
+  if (!appState.batchEnCurso || appState.batchPausado || appState.errorFatal) return;
+  if (!watchdogState.lastProgresoMs) return;
+  const estancadoMs = Date.now() - watchdogState.lastProgresoMs;
+  if (estancadoMs < WATCHDOG_UMBRAL_MS) return;
+  const min = Math.round(estancadoMs / 60000);
+  print(`🚨 Watchdog: sin progreso hace ${min} min con corrida activa. Posible cuelgue de red/token.`);
+  console.warn('Watchdog: estancamiento detectado', { estancadoMs });
+  iniciarAlarmaError();
+  watchdogMarcarProgreso();
+}
+
+function iniciarWatchdog() {
+  watchdogMarcarProgreso();
+  if (watchdogState.timer) return;
+  watchdogState.timer = setInterval(watchdogTick, WATCHDOG_TICK_MS);
+}
+
+function detenerWatchdog() {
+  if (watchdogState.timer) { clearInterval(watchdogState.timer); watchdogState.timer = null; }
+  watchdogState.lastProgresoMs = 0;
 }
 
 async function esperarDelayApi(forzarEsperaCompleta = false) {
@@ -507,6 +570,7 @@ async function apiFetch(url, init = {}, opts = {}) {
   const skipRetry  = opts.skipRetry  ?? false;
   const enforceDelay = opts.enforceDelay !== false;
   let attempt = 0;
+  let ciclos401 = 0;
   let lastError = null;
 
   while (attempt <= RETRY_MAX_REINTENTOS) {
@@ -526,17 +590,25 @@ async function apiFetch(url, init = {}, opts = {}) {
     if (init.body && typeof init.body === 'string' && !headers['Content-Type']) {
       headers['Content-Type'] = 'application/json';
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let resp;
     try {
-      resp = await fetch(url, { ...init, headers });
+      resp = await fetch(url, { ...init, headers, signal: controller.signal });
     } catch (e) {
-      lastError = new Error(`fetch failed: ${e.message}`);
+      if (e && e.name === 'AbortError') {
+        lastError = new Error(`fetch timeout (${FETCH_TIMEOUT_MS / 1000}s)`);
+      } else {
+        lastError = new Error(`fetch failed: ${e.message}`);
+      }
       if (skipRetry) throw lastError;
       if (attempt >= RETRY_MAX_REINTENTOS) throw lastError;
       print(`⚠️ Error de red, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${RETRY_DELAY_FIJO_MS / 1000}s`);
       await sleep(RETRY_DELAY_FIJO_MS);
       attempt++;
       continue;
+    } finally {
+      clearTimeout(timeoutId);
     }
     if (resp.ok) {
       const ct = resp.headers.get('content-type') || '';
@@ -550,9 +622,13 @@ async function apiFetch(url, init = {}, opts = {}) {
       tokenExpiresAt = 0;
       try { localStorage.removeItem(TOKEN_PERSIST_KEY); } catch (e) {}
       try { sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch (e) {}
+      ciclos401++;
+      if (ciclos401 > RETRY_MAX_CICLOS_401) {
+        throw new Error('HTTP 401 persistente tras varias renovaciones de token');
+      }
       const renovado = await renovarTokenSilencioso();
       if (renovado) {
-        print('🔄 Token renovado silenciosamente tras 401, reintentando...');
+        print(`🔄 Token renovado silenciosamente tras 401, reintentando... (${ciclos401}/${RETRY_MAX_CICLOS_401})`);
         continue;
       } else {
         await pausarPorToken('Token expirado y no se pudo renovar. Pulse Reconectar.');
@@ -588,6 +664,8 @@ async function pausarPorToken(motivo) {
   btnLeerSheets.disabled = true;
   btnPausarBatch.disabled = true;
   print(`⏸️ ${motivo}`);
+  print('🚨 Alarma activada: la corrida quedó pausada esperando reconexión manual.');
+  iniciarAlarmaError();
 }
 
 async function reanudarPorToken() {
@@ -1086,6 +1164,9 @@ function reanudarDesdeUltimo() {
   const nuevoStart = Math.max(p.ultimo_indice_confirmado || 0, p.ultimo_indice_leido || 0);
   intStartAt.value = String(nuevoStart);
   print(`▶️ Reanudando desde el índice ${nuevoStart} (último confirmado en maestro). Pulse "Reconectar" para continuar.`);
+  if (appState.batchEnCurso && appState.batchPausado) {
+    print('⏸️ Atención: hay una corrida pausada esperando token. Use "Reconectar" (no "Reanudar") para continuarla.');
+  }
 }
 
 async function ejecutarRecuperarBatchPendiente() {
@@ -2171,6 +2252,7 @@ async function procesarIniciadosLegacy() {
   appState.batchPausado = false;
   fallosConsecutivos = 0;
   detenerAlarmaError();
+  iniciarWatchdog();
 
   const regionFiltro = selectRegionFiltro.value || '__TODAS__';
   const HOJA_TRANSICIONES = '📅 Transiciones_Estado';
@@ -2325,6 +2407,7 @@ async function procesarIniciadosLegacy() {
     btnReconectar.style.display = '';
     btnReconectar.disabled = false;
   } finally {
+    detenerWatchdog();
     if (!appState.errorFatal) {
       appState.batchEnCurso = false;
       appState.batchPausado = false;
@@ -2354,6 +2437,7 @@ async function onLoginSuccess() {
 }
 
 btnConectar.addEventListener('click', async () => {
+  primarAudioContext();
   setLoginStatus('warn', '🟡 Solicitando acceso...');
   try {
     await initGis();
@@ -2368,8 +2452,14 @@ btnConectar.addEventListener('click', async () => {
   }
 });
 
-btnLeerSheets.addEventListener('click', () => ejecutarLecturaSheets());
-btnProcesarIniciadosLegacy.addEventListener('click', () => procesarIniciadosLegacy());
+btnLeerSheets.addEventListener('click', () => {
+  primarAudioContext();
+  ejecutarLecturaSheets();
+});
+btnProcesarIniciadosLegacy.addEventListener('click', () => {
+  primarAudioContext();
+  procesarIniciadosLegacy();
+});
 
 async function ejecutarLecturaSheets() {
   if (appState.batchEnCurso) {
@@ -2386,6 +2476,7 @@ async function ejecutarLecturaSheets() {
   appState.errorFatal = false;
   fallosConsecutivos = 0;
   detenerAlarmaError();
+  iniciarWatchdog();
 
   try {
     const batchSize = Math.max(1, parseInt(intBatchSize.value, 10) || 100);
@@ -2479,6 +2570,7 @@ async function ejecutarLecturaSheets() {
 
         lastFileMs = Date.now() - fileStart;
         archivosProcesados++;
+        watchdogMarcarProgreso();
 
         if (datosBatch.length >= batchSize) {
           batchContador++;
@@ -2545,6 +2637,7 @@ async function ejecutarLecturaSheets() {
       print(`💡 Hay ${bp.datos.length} registros en buffer. Pulse "Reconectar" para re-flushear y continuar.`);
     }
   } finally {
+    detenerWatchdog();
     if (!appState.errorFatal) {
       appState.batchEnCurso = false;
       appState.batchPausado = false;
@@ -2573,6 +2666,7 @@ btnPausarBatch.addEventListener('click', () => {
 
 btnReconectar.addEventListener('click', async () => {
   detenerAlarmaError();
+  primarAudioContext();
   setLoginStatus('warn', '🟡 Reconectando...');
   try {
     await initGis();
@@ -2648,6 +2742,7 @@ selectRegionFiltro.addEventListener('change', () => {
 // =============================================================================
 async function init() {
   detenerAlarmaError();
+  detenerWatchdog();
   window.addEventListener('beforeunload', detenerAlarmaError);
   window.addEventListener('pagehide', detenerAlarmaError);
   if (window.self !== window.top) {
