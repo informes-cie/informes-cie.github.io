@@ -84,6 +84,15 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       <p>⚠️ Si el boton Conectar no abre una ventana de login, abra esta pagina en una nueva pestana:</p>
       <button id="btn-new-tab" class="cie-btn cie-btn--info">🔗 Abrir en nueva pestana</button>
     </div>
+    <div class="cie-card" style="margin-top:8px;">
+      <p style="margin:0 0 6px 0;"><b>🤖 Para corridas desatendidas (2h+):</b></p>
+      <ol style="margin:0; padding-left:20px; font-size:13px;">
+        <li>Use una pestaña propia y <b>visible</b> (no minimizada; en el iframe de Sites no funciona).</li>
+        <li>Permita <b>pop-ups</b> para este sitio (🔒 → Pop-ups y redirecciones → Permitir). Sin esto la corrida se pausará a los ~60 min.</li>
+        <li>Equipo sin suspensión automática (o confíe en el Wake Lock activo durante la corrida).</li>
+        <li>Al conectar se ejecuta una prueba automática de renovación (canaria, ~3 min).</li>
+      </ol>
+    </div>
   </section>
 
   <p>Configure el batch y, si lo necesita, use <b>Start at</b> para comenzar desde una posicion especifica.</p>
@@ -130,7 +139,7 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 // CONFIGURACION GLOBAL
 // =============================================================================
 const GOOGLE_CLIENT_ID = "950842522264-drkmot5s3h7t8718b9trvac05dv3qu83.apps.googleusercontent.com";
-const BUILD_TIMESTAMP = "2026-06-01T17:34:06-04:00";
+const BUILD_TIMESTAMP = "2026-10-01T17:48:45-03:00";
 
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -315,6 +324,30 @@ function cargarTokenPersistente() {
   } catch (e) { return null; }
 }
 
+let gisEmailCuenta = '';
+const GIS_EMAIL_LS_KEY = 'cie_cent_gis_email';
+const TOKEN_REQUEST_TIMEOUT_MS = 90 * 1000;
+const TOKEN_RENEW_PROACTIVO_MS = 50 * 60 * 1000;   // renovar a los 50 min de vida del token
+const TOKEN_CANARY_DELAY_MS = 3 * 60 * 1000;      // renovación canaria a los 3 min de conectar
+const TOKEN_RETRY_DELAYS_MS = [5000, 15000, 30000]; // backoff entre intentos de renovación
+let renovacionEnCurso = null;                      // mutex: una sola renovación a la vez
+let renovarTimer = null;
+let canaryTimer = null;
+let lastTokenRenewalTs = 0;                        // timestamp de la última renovación exitosa
+
+function cargarEmailCuenta() {
+  try { return localStorage.getItem(GIS_EMAIL_LS_KEY) || ''; } catch (e) { return ''; }
+}
+
+function tokenClientErrorCallback(err) {
+  console.warn('GIS error', err);
+  if (typeof err === 'object' && err !== null && err.type === 'popup_failed_to_open') {
+    print('🚫 Pop-up de Google bloqueada por el navegador.');
+    print('   Permita pop-ups para este sitio: icono 🔒/ℹ️ en la barra de direcciones → Pop-ups y redirecciones → Permitir, recargue e intente de nuevo.');
+  }
+  if (typeof _tokenRequestFail === 'function') _tokenRequestFail(err);
+}
+
 function initGis() {
   return new Promise((resolve) => {
     if (typeof google === 'undefined' || typeof google.accounts === 'undefined') {
@@ -325,27 +358,79 @@ function initGis() {
       client_id: GOOGLE_CLIENT_ID,
       scope: SCOPES,
       callback: '',
-      error_callback: (err) => console.warn('GIS error', err)
+      error_callback: tokenClientErrorCallback
     });
     resolve();
   });
 }
 
+let _tokenRequestFail = null;
+
+async function _asegurarTokenClientConHint() {
+  // Re-inicializa el token client con login_hint conocido para evitar el
+  // selector de cuenta en renovaciones desatendidas.
+  const email = gisEmailCuenta || cargarEmailCuenta();
+  if (!email || !tokenClient || tokenClient.__hint === email) return;
+  try {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: SCOPES,
+      callback: '',
+      error_callback: tokenClientErrorCallback,
+      login_hint: email
+    });
+    tokenClient.__hint = email;
+  } catch (e) { console.warn('Re-init token client con login_hint fallo', e); }
+}
+
+// GIS no soporta requestAccessToken concurrentes: serializar todas las peticiones
+// (evita solapamiento entre renovación proactiva y clics manuales en Reconectar).
+let _tokenRequestChain = Promise.resolve();
+
 function requestToken(interactive) {
+  const run = _tokenRequestChain.then(() => _requestTokenInner(interactive));
+  _tokenRequestChain = run.catch(() => {});
+  return run;
+}
+
+function _requestTokenInner(interactive) {
   return new Promise((resolve, reject) => {
     if (!tokenClient) {
-      initGis().then(() => requestToken(interactive).then(resolve, reject));
+      initGis().then(() => _requestTokenInner(interactive)).then(resolve, reject);
       return;
     }
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      reject(err);
+    };
+    _tokenRequestFail = fail;
+    const timeoutId = setTimeout(() => fail(new Error(`GIS sin respuesta tras ${TOKEN_REQUEST_TIMEOUT_MS / 1000}s`)), TOKEN_REQUEST_TIMEOUT_MS);
     tokenClient.callback = (resp) => {
-      if (resp.error) return reject(resp);
+      if (resp.error) return fail(resp);
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
       accessToken = resp.access_token;
       tokenExpiresAt = Date.now() + (resp.expires_in * 1000) - 60000;
       try { sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ accessToken, tokenExpiresAt })); } catch (e) {}
       guardarTokenPersistente();
+      if (resp.login_hint) {
+        gisEmailCuenta = resp.login_hint;
+        try { localStorage.setItem(GIS_EMAIL_LS_KEY, gisEmailCuenta); } catch (e) {}
+      }
+      lastTokenRenewalTs = Date.now();
+      programarRenovacionProactiva();
       resolve(resp);
     };
-    tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+    _asegurarTokenClientConHint().then(() => {
+      if (settled) return;
+      tokenClient.requestAccessToken({ prompt: '' });
+    }).catch(() => {
+      if (!settled) tokenClient.requestAccessToken({ prompt: '' });
+    });
   });
 }
 
@@ -360,10 +445,83 @@ async function renovarTokenSilencioso() {
   }
 }
 
+function programarRenovacionProactiva() {
+  clearTimeout(renovarTimer);
+  renovarTimer = null;
+  if (!accessToken) return;
+  const restante = tokenExpiresAt - Date.now();
+  if (restante <= 0) return;
+  if (restante <= TOKEN_RENEW_MARGIN_MS) return; // demasiado cerca del fin: cubierto por ensureToken
+  const espera = restante - TOKEN_RENEW_PROACTIVO_MS;
+  // Si ya pasamos el umbral proactivo (p.ej. tras un fallo), reintentar cada 3 min
+  const delay = espera > 0 ? espera : 3 * 60 * 1000;
+  renovarTimer = setTimeout(async () => {
+    renovarTimer = null;
+    print(`🔄 Renovación proactiva: token a ${Math.round((tokenExpiresAt - Date.now()) / 60000)} min de expirar`);
+    const ok = await renovarConReintentos('proactiva programada');
+    if (!ok) {
+      // Reintentos escalonados mientras el token siga vivo (~53/56/58 min)
+      const restante2 = tokenExpiresAt - Date.now();
+      if (restante2 > TOKEN_RENEW_MARGIN_MS) {
+        programarRenovacionProactiva();
+      }
+    }
+  }, delay);
+}
+
+function programarCanaria() {
+  clearTimeout(canaryTimer);
+  canaryTimer = setTimeout(async () => {
+    canaryTimer = null;
+    if (!accessToken) return;
+    // Si el token es demasiado nuevo (< 2 min de vida), una renovación ya ocurrió
+    // hace instantes (login/recarga) y la canaria no validaría nada nuevo.
+    if (lastTokenRenewalTs && (Date.now() - lastTokenRenewalTs) < 2 * 60 * 1000) {
+      print('🐤 Canaria omitida: token renovado hace menos de 2 min (ya validado).');
+      return;
+    }
+    print('🐤 Renovación canaria: probando renovación automática desatendida (popup debe abrirse y cerrarse solo)...');
+    const ok = await renovarConReintentos('canaria');
+    if (ok) {
+      print('✅ Canaria OK: renovación automática funcionando. Corrida desatendida asegurada.');
+      logApiTrace('canaria_ok').catch(() => {});
+    } else {
+      print('🚨 Canaria FALLÓ: la renovación automática no funciona en este navegador/entorno.');
+      print('   La corrida se detendría a la hora de expirar el token. Corrija antes de dejar el equipo desatendido.');
+      iniciarAlarmaError();
+    }
+  }, TOKEN_CANARY_DELAY_MS);
+}
+
+async function renovarConReintentos(motivo = '') {
+  if (renovacionEnCurso) return renovacionEnCurso;
+  const intentos = TOKEN_RETRY_DELAYS_MS.length;
+  renovacionEnCurso = (async () => {
+    for (let i = 0; i < intentos; i++) {
+      const ok = await renovarTokenSilencioso();
+      if (ok) {
+        print(`✅ Token renovado${motivo ? ` (${motivo})` : ''} [intento ${i + 1}/${intentos}]`);
+        programarRenovacionProactiva();
+        detenerBucleAutoreparacion();
+        return true;
+      }
+      if (i < intentos - 1) {
+        print(`⚠️ Renovación falló${motivo ? ` (${motivo})` : ''} [intento ${i + 1}/${intentos}], reintentando en ${TOKEN_RETRY_DELAYS_MS[i] / 1000}s`);
+        await sleep(TOKEN_RETRY_DELAYS_MS[i]);
+      }
+    }
+    print(`❌ Renovación agotó ${intentos} intentos${motivo ? ` (${motivo})` : ''}.`);
+    return false;
+  })();
+  const result = await renovacionEnCurso;
+  renovacionEnCurso = null;
+  return result;
+}
+
 async function ensureToken({ interactive = false } = {}) {
   if (accessToken && Date.now() < tokenExpiresAt) {
     if (tokenExpiresAt - Date.now() < TOKEN_RENEW_MARGIN_MS) {
-      renovarTokenSilencioso().catch(() => {});
+      renovarConReintentos('margen T-2min').catch(() => {});
     }
     return accessToken;
   }
@@ -374,6 +532,7 @@ async function ensureToken({ interactive = false } = {}) {
       if (Date.now() < parsed.tokenExpiresAt) {
         accessToken = parsed.accessToken;
         tokenExpiresAt = parsed.tokenExpiresAt;
+        programarRenovacionProactiva();
         return accessToken;
       }
     } catch (e) {}
@@ -382,8 +541,11 @@ async function ensureToken({ interactive = false } = {}) {
   if (persist) {
     accessToken = persist.accessToken;
     tokenExpiresAt = persist.tokenExpiresAt;
+    programarRenovacionProactiva();
     return accessToken;
   }
+  const renovado = await renovarConReintentos('ensureToken sin token');
+  if (renovado) return accessToken;
   if (!interactive) throw new Error('No hay token valido. Pulse Reconectar.');
   await requestToken(true);
   return accessToken;
@@ -408,6 +570,173 @@ const LLAMADAS_POR_ARCHIVO = 2;
 const LLAMADAS_POR_BATCH = 4;
 const UMBRAL_FALLOS_CONSECUTIVOS = 3;
 let fallosConsecutivos = 0;
+
+// Autoreparación: tras 3 fallos de renovación + pausa, seguir intentando en background
+const AUTOREPARACION_INTERVALO_MS = 5 * 60 * 1000;
+const AUTOREPARACION_DURACION_MS = 30 * 60 * 1000;
+let autoreparacionTimer = null;
+let autoreparacionInicio = 0;
+
+async function iniciarBucleAutoreparacion() {
+  if (autoreparacionTimer) return;
+  autoreparacionInicio = Date.now();
+  print(`🔧 Autoreparación: reintentos silenciosos cada ${AUTOREPARACION_INTERVALO_MS / 60000} min por ${AUTOREPARACION_DURACION_MS / 60000} min.`);
+  const tick = async () => {
+    autoreparacionTimer = null;
+    if (!appState.batchEnCurso) { detenerBucleAutoreparacion(); return; }
+    if (!appState.batchPausado && !appState.errorFatal) { detenerBucleAutoreparacion(); return; }
+    const ok = await renovarConReintentos('autoreparación');
+    if (ok) {
+      detenerAlarmaError();
+      if (appState.errorFatal) {
+        // La corrida crasheó (loop terminado): reiniciar desde el último confirmado
+        print('🔧 Autoreparación: token renovado. Reiniciando corrida automáticamente...');
+        reanudarLoopAutomatico();
+      } else {
+        // La corrida sigue viva, solo pausada: reanudar y dejar que continúe sola
+        print('🔧 Autoreparación: token renovado. Reanudando corrida pausada...');
+        await reanudarPorToken();
+      }
+      detenerBucleAutoreparacion();
+      return;
+    }
+    if (Date.now() - autoreparacionInicio >= AUTOREPARACION_DURACION_MS) {
+      print('🔧 Autoreparación: ventana de 30 min agotada sin éxito. Se requiere reconexión manual.');
+      detenerBucleAutoreparacion();
+      liberarWakeLock();
+      detenerKeepAlive();
+      limpiarCorridaActiva();
+      return;
+    }
+    autoreparacionTimer = setTimeout(tick, AUTOREPARACION_INTERVALO_MS);
+  };
+  autoreparacionTimer = setTimeout(tick, AUTOREPARACION_INTERVALO_MS);
+}
+
+function detenerBucleAutoreparacion() {
+  if (autoreparacionTimer) { clearTimeout(autoreparacionTimer); autoreparacionTimer = null; }
+}
+
+async function apiFetch(url, init = {}, opts = {}) {
+  const skipRetry  = opts.skipRetry  ?? false;
+  const enforceDelay = opts.enforceDelay !== false;
+  let attempt = 0;
+  let ciclos401 = 0;
+  let lastError = null;
+
+  while (attempt <= RETRY_MAX_REINTENTOS) {
+    await esperarReanudacion();
+    if (enforceDelay) await esperarDelayApi(true);
+
+    let token;
+    try {
+      token = await ensureToken({ interactive: false });
+    } catch (e) {
+      print(`⚠️ Sin token válido, intentando renovación (${e.message})`);
+      const renovado = await renovarConReintentos('apiFetch sin token');
+      if (renovado) {
+        token = accessToken;
+      } else {
+        await pausarPorToken('No se pudo renovar el token tras varios intentos');
+        iniciarBucleAutoreparacion();
+        attempt = 0; // pausa autoreparada no consume reintentos: ciclo completo al volver
+        continue;
+      }
+    }
+
+    const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
+    if (init.body && typeof init.body === 'string' && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let resp;
+    try {
+      resp = await fetch(url, { ...init, headers, signal: controller.signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        lastError = new Error(`fetch timeout (${FETCH_TIMEOUT_MS / 1000}s)`);
+      } else {
+        lastError = new Error(`fetch failed: ${e.message}`);
+      }
+      if (skipRetry) throw lastError;
+      if (attempt >= RETRY_MAX_REINTENTOS) throw lastError;
+      print(`⚠️ Error de red, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${RETRY_DELAY_FIJO_MS / 1000}s`);
+      await sleep(RETRY_DELAY_FIJO_MS);
+      attempt++;
+      continue;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    if (resp.ok) {
+      const ct = resp.headers.get('content-type') || '';
+      return ct.includes('application/json') ? resp.json() : resp.text();
+    }
+    const status = resp.status;
+    const retriable = RETRIABLE.has(status);
+
+    if (status === 401) {
+      accessToken = null;
+      tokenExpiresAt = 0;
+      try { localStorage.removeItem(TOKEN_PERSIST_KEY); } catch (e) {}
+      try { sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch (e) {}
+      ciclos401++;
+      if (ciclos401 > RETRY_MAX_CICLOS_401) {
+        throw new Error('HTTP 401 persistente tras varias renovaciones de token');
+      }
+      const renovado = await renovarConReintentos(`401 ciclo ${ciclos401}/${RETRY_MAX_CICLOS_401}`);
+      if (renovado) {
+        print(`🔄 Token renovado tras 401, reintentando... (${ciclos401}/${RETRY_MAX_CICLOS_401})`);
+        continue;
+      } else {
+        await pausarPorToken('Token expirado y no se pudo renovar tras reintentos. Pulse Reconectar.');
+        iniciarBucleAutoreparacion();
+        continue;
+      }
+    }
+
+    if (skipRetry || !retriable || attempt >= RETRY_MAX_REINTENTOS) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${status}: ${text.slice(0, 500)}`);
+    }
+    let wait;
+    const retryAfter = parseFloat(resp.headers.get('Retry-After') || '0');
+    if (retryAfter > 0) {
+      wait = Math.min(retryAfter * 1000, 120000);
+    } else {
+      wait = RETRY_DELAY_FIJO_MS;
+    }
+    print(`⚠️ API retryable ${status}, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${wait / 1000}s`);
+    await sleep(wait);
+    attempt++;
+    lastError = new Error(`HTTP ${status}`);
+  }
+  if (lastError) throw lastError;
+  throw new Error('apiFetch: reintentos agotados');
+}
+
+async function pausarPorToken(motivo) {
+  if (!appState.batchEnCurso) return;
+  appState.batchPausado = true;
+  btnReconectar.style.display = '';
+  btnReconectar.disabled = false;
+  btnLeerSheets.disabled = true;
+  btnPausarBatch.disabled = true;
+  print(`⏸️ ${motivo}`);
+  print('🚨 Alarma activada: la corrida quedó pausada esperando reconexión. Autoreparación en background.');
+  iniciarAlarmaError();
+}
+
+async function reanudarPorToken() {
+  appState.batchPausado = false;
+  btnReconectar.style.display = 'none';
+  btnReconectar.disabled = true;
+  if (appState.batchEnCurso) {
+    btnLeerSheets.disabled = true;
+    btnPausarBatch.disabled = false;
+  }
+  print('▶️ Reanudando batch...');
+}
 
 const ALARMA_TITULO_BASE = document.title;
 const alarmState = { active: false, ctx: null, osc: null, gain: null, interval: null, tituloInterval: null };
@@ -521,6 +850,7 @@ function watchdogMarcarProgreso() {
 function watchdogTick() {
   if (!appState.batchEnCurso || appState.batchPausado || appState.errorFatal) return;
   if (!watchdogState.lastProgresoMs) return;
+  marcarCorridaActiva(); // mantiene fresco el flag para auto-reanudación tras recarga
   const estancadoMs = Date.now() - watchdogState.lastProgresoMs;
   if (estancadoMs < WATCHDOG_UMBRAL_MS) return;
   const min = Math.round(estancadoMs / 60000);
@@ -540,6 +870,98 @@ function detenerWatchdog() {
   if (watchdogState.timer) { clearInterval(watchdogState.timer); watchdogState.timer = null; }
   watchdogState.lastProgresoMs = 0;
 }
+
+// =============================================================================
+// WAKE LOCK + ANTI-THROTTLING + FLAG DE CORRIDA (operación desatendida)
+// =============================================================================
+let wakeLock = null;
+let keepAliveOsc = null;
+let keepAliveCtx = null;
+
+async function adquirirWakeLock() {
+  try {
+    if (!('wakeLock' in navigator)) {
+      print('ℹ️ Wake Lock no soportado en este navegador (equipo debe configurarse sin suspensión).');
+      return;
+    }
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+    print('🔒 Wake Lock activo: pantalla no se suspenderá durante la corrida.');
+  } catch (e) {
+    console.warn('Wake Lock fallo', e);
+    print(`⚠️ Wake Lock no disponible: ${e.message}. Verifique suspensión automática del equipo.`);
+  }
+}
+
+function liberarWakeLock() {
+  try { if (wakeLock) { wakeLock.release(); } } catch (e) {}
+  wakeLock = null;
+}
+
+// Audio silencioso para eximir la tab del throttling intensivo de Chrome
+// (tabs ocultas pasan a 1 despertar/min tras 5 min, volviendo la corrida ~40x más lenta)
+function iniciarKeepAlive() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx || keepAliveOsc) return;
+    keepAliveCtx = new AudioCtx();
+    const osc = keepAliveCtx.createOscillator();
+    const gain = keepAliveCtx.createGain();
+    gain.gain.value = 0; // silencioso total
+    osc.connect(gain).connect(keepAliveCtx.destination);
+    osc.start();
+    keepAliveOsc = osc;
+  } catch (e) { console.warn('keep-alive fallo', e); }
+}
+
+function detenerKeepAlive() {
+  try {
+    if (keepAliveOsc) try { keepAliveOsc.stop(); } catch (e) {}
+    if (keepAliveCtx) try { keepAliveCtx.close(); } catch (e) {}
+  } catch (e) {}
+  keepAliveOsc = null;
+  keepAliveCtx = null;
+}
+
+// Flag persistente de corrida: permite auto-reanudar tras recarga accidental
+const LS_KEY_CORRIDA = 'cie_cent_corrida_activa';
+
+function marcarCorridaActiva() {
+  try { localStorage.setItem(LS_KEY_CORRIDA, JSON.stringify({ ts: new Date().toISOString() })); } catch (e) {}
+}
+
+function limpiarCorridaActiva() {
+  try { localStorage.removeItem(LS_KEY_CORRIDA); } catch (e) {}
+}
+
+function hayCorridaActivaPersistida() {
+  try {
+    const raw = localStorage.getItem(LS_KEY_CORRIDA);
+    if (!raw) return false;
+    const p = JSON.parse(raw);
+    if (!p || !p.ts) return false;
+    // Flag razonablemente fresco (< 6h): más viejo se considera corrida abandonada
+    const age = Date.now() - new Date(p.ts).getTime();
+    if (!isFinite(age) || age > 6 * 60 * 60 * 1000) {
+      localStorage.removeItem(LS_KEY_CORRIDA);
+      return false;
+    }
+    return true;
+  } catch (e) { return false; }
+}
+
+document.addEventListener('visibilitychange', () => {
+  // Re-adquisición de Wake Lock al volver a visible (se libera al ocultar la tab)
+  if (document.visibilityState === 'visible') {
+    if (wakeLock === null && appState.batchEnCurso && !appState.errorFatal) {
+      adquirirWakeLock().catch(() => {});
+    }
+    // Renovación oportunista: token por expirar y alguien enfoca la tab
+    if (accessToken && tokenExpiresAt - Date.now() < TOKEN_RENEW_MARGIN_MS) {
+      renovarConReintentos('visibilitychange').catch(() => {});
+    }
+  }
+});
 
 async function esperarDelayApi(forzarEsperaCompleta = false) {
   const delayMs = obtenerDelayMs();
@@ -566,118 +988,6 @@ async function esperarReanudacion() {
   }
 }
 
-async function apiFetch(url, init = {}, opts = {}) {
-  const skipRetry  = opts.skipRetry  ?? false;
-  const enforceDelay = opts.enforceDelay !== false;
-  let attempt = 0;
-  let ciclos401 = 0;
-  let lastError = null;
-
-  while (attempt <= RETRY_MAX_REINTENTOS) {
-    await esperarReanudacion();
-    if (enforceDelay) await esperarDelayApi(true);
-
-    let token;
-    try {
-      token = await ensureToken({ interactive: false });
-    } catch (e) {
-      await pausarPorToken('No se pudo obtener token antes de la llamada');
-      attempt++;
-      continue;
-    }
-
-    const headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
-    if (init.body && typeof init.body === 'string' && !headers['Content-Type']) {
-      headers['Content-Type'] = 'application/json';
-    }
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let resp;
-    try {
-      resp = await fetch(url, { ...init, headers, signal: controller.signal });
-    } catch (e) {
-      if (e && e.name === 'AbortError') {
-        lastError = new Error(`fetch timeout (${FETCH_TIMEOUT_MS / 1000}s)`);
-      } else {
-        lastError = new Error(`fetch failed: ${e.message}`);
-      }
-      if (skipRetry) throw lastError;
-      if (attempt >= RETRY_MAX_REINTENTOS) throw lastError;
-      print(`⚠️ Error de red, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${RETRY_DELAY_FIJO_MS / 1000}s`);
-      await sleep(RETRY_DELAY_FIJO_MS);
-      attempt++;
-      continue;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-    if (resp.ok) {
-      const ct = resp.headers.get('content-type') || '';
-      return ct.includes('application/json') ? resp.json() : resp.text();
-    }
-    const status = resp.status;
-    const retriable = RETRIABLE.has(status);
-
-    if (status === 401) {
-      accessToken = null;
-      tokenExpiresAt = 0;
-      try { localStorage.removeItem(TOKEN_PERSIST_KEY); } catch (e) {}
-      try { sessionStorage.removeItem(TOKEN_STORAGE_KEY); } catch (e) {}
-      ciclos401++;
-      if (ciclos401 > RETRY_MAX_CICLOS_401) {
-        throw new Error('HTTP 401 persistente tras varias renovaciones de token');
-      }
-      const renovado = await renovarTokenSilencioso();
-      if (renovado) {
-        print(`🔄 Token renovado silenciosamente tras 401, reintentando... (${ciclos401}/${RETRY_MAX_CICLOS_401})`);
-        continue;
-      } else {
-        await pausarPorToken('Token expirado y no se pudo renovar. Pulse Reconectar.');
-        continue;
-      }
-    }
-
-    if (skipRetry || !retriable || attempt >= RETRY_MAX_REINTENTOS) {
-      const text = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${status}: ${text.slice(0, 500)}`);
-    }
-    let wait;
-    const retryAfter = parseFloat(resp.headers.get('Retry-After') || '0');
-    if (retryAfter > 0) {
-      wait = Math.min(retryAfter * 1000, 120000);
-    } else {
-      wait = RETRY_DELAY_FIJO_MS;
-    }
-    print(`⚠️ API retryable ${status}, reintento ${attempt + 1}/${RETRY_MAX_REINTENTOS} en ${wait / 1000}s`);
-    await sleep(wait);
-    attempt++;
-    lastError = new Error(`HTTP ${status}`);
-  }
-  if (lastError) throw lastError;
-  throw new Error('apiFetch: reintentos agotados');
-}
-
-async function pausarPorToken(motivo) {
-  if (!appState.batchEnCurso) return;
-  appState.batchPausado = true;
-  btnReconectar.style.display = '';
-  btnReconectar.disabled = false;
-  btnLeerSheets.disabled = true;
-  btnPausarBatch.disabled = true;
-  print(`⏸️ ${motivo}`);
-  print('🚨 Alarma activada: la corrida quedó pausada esperando reconexión manual.');
-  iniciarAlarmaError();
-}
-
-async function reanudarPorToken() {
-  appState.batchPausado = false;
-  btnReconectar.style.display = 'none';
-  btnReconectar.disabled = true;
-  if (appState.batchEnCurso) {
-    btnLeerSheets.disabled = true;
-    btnPausarBatch.disabled = false;
-  }
-  print('▶️ Reanudando batch...');
-}
 
 async function logApiTrace(message) {
   try {
@@ -1198,6 +1508,12 @@ async function ejecutarRecuperarBatchPendiente() {
 function reanudarLoopAutomatico() {
   const p = cargarProgreso();
   if (!p) { print('⚠️ No hay progreso para reanudar.'); return false; }
+  // Resetear el estado de la corrida pausada para que ejecutarLecturaSheets no haga early-return
+  if (appState.batchEnCurso) {
+    appState.batchPausado = false;
+    appState.errorFatal = false;
+    appState.batchEnCurso = false;
+  }
   const nuevoStart = Math.max(p.ultimo_indice_confirmado || 0, p.ultimo_indice_leido || 0);
   intStartAt.value = String(nuevoStart);
   print(`🔁 Reanudando corrida automáticamente desde sheet #${nuevoStart}...`);
@@ -2420,16 +2736,105 @@ async function procesarIniciadosLegacy() {
   }
 }
 
+// Verificación de pop-ups en DOS niveles:
+// 1) Sync (fuerte-negativa): si window.open falla incluso con activación de usuario (click),
+//    las pop-ups están bloqueadas con certeza.
+// 2) Diferida (definitiva): a los 6s de conectar, cuando la "transient activation" del click
+//    ya expiró, replicando la condición real de la renovación desatendida (popup sin gesto).
+//    El popup de renovación horaria del token necesita esta condición para funcionar solo.
+const popupsState = { permitidas: false, verificado: false };
+let popupsPruebaPromise = null;
+
+function _probarPopupSinActivacion() {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      try {
+        const w = window.open('about:blank', '_blank');
+        if (!w) return resolve(false);
+        try { w.close(); } catch (e) {}
+        resolve(true);
+      } catch (e) { resolve(false); }
+    }, 6000); // > ventana de transient activation (~5s)
+  });
+}
+
+function iniciarPruebaPopups() {
+  if (!popupsPruebaPromise) {
+    popupsPruebaPromise = _probarPopupSinActivacion().then((ok) => {
+      popupsState.verificado = true;
+      popupsState.permitidas = ok;
+      return ok;
+    });
+  }
+  return popupsPruebaPromise;
+}
+
+function verificarPopupsSync() {
+  try {
+    const w = window.open('about:blank', '_blank');
+    if (!w) {
+      popupsState.permitidas = false;
+      popupsState.verificado = true;
+      popupsPruebaPromise = Promise.resolve(false);
+      return false;
+    }
+    try { w.close(); } catch (e) {}
+    return true; // inconclusante: pudo ser transient activation; esperar prueba diferida
+  } catch (e) {
+    popupsPruebaPromise = Promise.resolve(false);
+    return false;
+  }
+}
+
+function instruccionesPopups() {
+  print('🚫 Pop-ups bloqueadas para este sitio.');
+  print('   La renovación automática del token (cada hora) necesita abrir una ventana de Google que se cierra sola.');
+  print('   Sin esto, la corrida se pausará a los ~60 min con nadie presente.');
+  print('   Cómo permitir: icono 🔒/ℹ️ en la barra de direcciones → «Pop-ups y redirecciones» → Permitir → recargar la página.');
+}
+
+async function _detectarEmailCuenta() {
+  // GIS no siempre entrega login_hint en la respuesta; obtenerlo desde Drive.
+  try {
+    const about = await apiFetch('https://www.googleapis.com/drive/v3/about?fields=user');
+    const email = (about.user || {}).emailAddress || '';
+    if (email) {
+      gisEmailCuenta = email;
+      try { localStorage.setItem(GIS_EMAIL_LS_KEY, email); } catch (e) {}
+    }
+  } catch (e) { console.warn('No se pudo detectar email de cuenta', e); }
+}
+
 async function onLoginSuccess() {
   try {
     await initGis();
     await resolverConfiguracionIds(true);
     const maestroId = await crearObtenerMaestro();
     await compartirRecursosConDominio(maestroId, true);
-    btnLeerSheets.disabled = false;
+    if (!gisEmailCuenta) await _detectarEmailCuenta();
+    iniciarPruebaPopups();
+    const popupsOk = verificarPopupsSync();
+    if (popupsOk) {
+      print('🟡 Pop-ups: prueba rápida dentro del click OK; esperando prueba diferida (6s)...');
+      btnLeerSheets.disabled = false;
+      iniciarPruebaPopups().then((okDiferido) => {
+        if (okDiferido) {
+          print('✅ Pop-ups permitidas sin gesto de usuario: renovación automática desatendida habilitada.');
+          btnLeerSheets.disabled = false;
+        } else {
+          instruccionesPopups();
+          btnLeerSheets.disabled = true;
+          setLoginStatus('warn', '🟡 Conectado — pop-ups bloqueadas (necesarias para desatendido)');
+        }
+      });
+    } else {
+      instruccionesPopups();
+      btnLeerSheets.disabled = true;
+      setLoginStatus('warn', '🟡 Conectado — pop-ups bloqueadas (necesarias para desatendido)');
+    }
     btnProcesarIniciadosLegacy.disabled = false;
-    setLoginStatus('ok', '🟢 Conectado');
-    print('✅ Sistema listo para leer informes CIE');
+    if (popupsOk) setLoginStatus('ok', '🟢 Conectado');
+    programarCanaria();
   } catch (e) {
     setLoginStatus('err', '🔴 Error: ' + e.message);
     print('❌ ' + e.message);
@@ -2466,6 +2871,22 @@ async function ejecutarLecturaSheets() {
     print('⚠️ Ya hay una corrida en curso. Espere a que termine o pause.');
     return;
   }
+  if (!popupsState.permitidas && popupsState.verificado) {
+    instruccionesPopups();
+    print('⛔ Corrida NO iniciada: pop-ups bloqueadas. Habilítelas para operación desatendida.');
+    btnLeerSheets.disabled = true;
+    return;
+  }
+  if (!popupsState.verificado) {
+    print('⏳ Esperando verificación diferida de pop-ups (6s)...');
+    const ok = await iniciarPruebaPopups();
+    if (!ok) {
+      instruccionesPopups();
+      print('⛔ Corrida NO iniciada: pop-ups bloqueadas. Habilítelas para operación desatendida.');
+      btnLeerSheets.disabled = true;
+      return;
+    }
+  }
   clearOutput();
   btnLeerSheets.disabled = true;
   btnLeerSheets.textContent = '⏳ Procesando...';
@@ -2477,6 +2898,10 @@ async function ejecutarLecturaSheets() {
   fallosConsecutivos = 0;
   detenerAlarmaError();
   iniciarWatchdog();
+  marcarCorridaActiva();
+  await adquirirWakeLock();
+  iniciarKeepAlive();
+  print('🤖 Modo desatendido activo: renovación proactiva de token + Wake Lock + autoreparación habilitados.');
 
   try {
     const batchSize = Math.max(1, parseInt(intBatchSize.value, 10) || 100);
@@ -2636,16 +3061,26 @@ async function ejecutarLecturaSheets() {
     if (bp && bp.datos.length > 0) {
       print(`💡 Hay ${bp.datos.length} registros en buffer. Pulse "Reconectar" para re-flushear y continuar.`);
     }
+    // Si el error podría deberse al token, activar autoreparación
+    const msg = String(e.message || '').toLowerCase();
+    if (msg.includes('token') || msg.includes('401') || msg.includes('unauthorized')) {
+      iniciarBucleAutoreparacion();
+    }
   } finally {
     detenerWatchdog();
     if (!appState.errorFatal) {
       appState.batchEnCurso = false;
       appState.batchPausado = false;
+      limpiarCorridaActiva();
+      detenerBucleAutoreparacion();
+      liberarWakeLock();
+      detenerKeepAlive();
       btnLeerSheets.disabled = false;
       btnLeerSheets.textContent = '📖 Leer Informes CIE';
       btnPausarBatch.disabled = true;
       btnReconectar.style.display = 'none';
     } else {
+      // Pausa por error: se mantiene Wake Lock y keep-alive para autoreparación
       btnLeerSheets.disabled = true;
       btnLeerSheets.textContent = '⏸️ En pausa por error';
       btnPausarBatch.disabled = true;
@@ -2740,10 +3175,28 @@ selectRegionFiltro.addEventListener('change', () => {
 // =============================================================================
 // INITIALIZATION
 // =============================================================================
+async function _autoReanudarSiCorridaActiva() {
+  if (!hayCorridaActivaPersistida()) return;
+  const p = cargarProgreso();
+  if (!p) { limpiarCorridaActiva(); return; }
+  const leido = p.ultimo_indice_leido || 0;
+  const confirmado = p.ultimo_indice_confirmado || 0;
+  if (leido <= 0 && confirmado <= 0) { limpiarCorridaActiva(); return; }
+  print(`🔁 La página se recargó con una corrida activa (último sheet #${leido}). Auto-reanudando...`);
+  await sleep(2000);
+  reanudarLoopAutomatico();
+}
+
 async function init() {
   detenerAlarmaError();
   detenerWatchdog();
-  window.addEventListener('beforeunload', detenerAlarmaError);
+  window.addEventListener('beforeunload', (ev) => {
+    detenerAlarmaError();
+    if (appState.batchEnCurso && !appState.errorFatal) {
+      ev.preventDefault();
+      ev.returnValue = 'Hay una corrida en curso. ¿Seguro que quiere cerrar la página?';
+    }
+  });
   window.addEventListener('pagehide', detenerAlarmaError);
   if (window.self !== window.top) {
     document.getElementById('iframe-warning').style.display = 'block';
@@ -2771,6 +3224,7 @@ async function init() {
   poblarDropdownRegiones();
   refrescarBarraProgreso();
   refrescarIndicadorBatchPendiente();
+  print('📖 Guía desatendido: (1) pestaña propia y visible, (2) pop-ups permitidas para este sitio, (3) equipo sin suspensión automática, (4) al conectar se prueba la renovación (canaria).');
 
   const stored = sessionStorage.getItem(TOKEN_STORAGE_KEY);
   if (stored) {
@@ -2780,6 +3234,7 @@ async function init() {
         accessToken = parsed.accessToken;
         tokenExpiresAt = parsed.tokenExpiresAt;
         await onLoginSuccess();
+        await _autoReanudarSiCorridaActiva();
         return;
       }
     } catch (e) {}
@@ -2789,6 +3244,22 @@ async function init() {
     accessToken = persist.accessToken;
     tokenExpiresAt = persist.tokenExpiresAt;
     await onLoginSuccess();
+    await _autoReanudarSiCorridaActiva();
+    return;
+  }
+  // Token expirado: si había corrida activa (recarga/crash), intentar renovación
+  // silenciosa — pop-ups ya fueron verificadas al iniciar la corrida.
+  if (hayCorridaActivaPersistida()) {
+    print('🔁 Token expirado con corrida activa persistida. Intentando renovación silenciosa...');
+    const ok = await renovarConReintentos('init tras recarga');
+    if (ok) {
+      await onLoginSuccess();
+      await _autoReanudarSiCorridaActiva();
+      return;
+    }
+    print('🚨 No se pudo renovar tras recarga. Se requiere conexión manual (botón Conectar).');
+    print('   La corrida quedó pausada; al reconectar se auto-reanudará desde el último sheet confirmado.');
+    iniciarAlarmaError();
     return;
   }
   setLoginStatus('off', '⚪ No conectado');
