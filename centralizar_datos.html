@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="frame-ancestors https://sites.google.com">
+<link rel="icon" href="data:,">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 <title>Centralizar Datos CIE</title>
@@ -139,7 +140,7 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 // CONFIGURACION GLOBAL
 // =============================================================================
 const GOOGLE_CLIENT_ID = "950842522264-drkmot5s3h7t8718b9trvac05dv3qu83.apps.googleusercontent.com";
-const BUILD_TIMESTAMP = "2026-10-01T17:48:45-03:00";
+const BUILD_TIMESTAMP = "2026-10-26T14:00:00-03:00";
 
 const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -387,8 +388,193 @@ async function _asegurarTokenClientConHint() {
 // (evita solapamiento entre renovación proactiva y clics manuales en Reconectar).
 let _tokenRequestChain = Promise.resolve();
 
+// Aplica una respuesta de token (GIS o respaldo) al estado global de la página.
+function aplicarTokenRespuesta(resp) {
+  accessToken = resp.access_token;
+  tokenExpiresAt = Date.now() + ((resp.expires_in || 3600) * 1000) - 60000;
+  try { sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ accessToken, tokenExpiresAt })); } catch (e) {}
+  guardarTokenPersistente();
+  if (resp.login_hint) {
+    gisEmailCuenta = resp.login_hint;
+    try { localStorage.setItem(GIS_EMAIL_LS_KEY, gisEmailCuenta); } catch (e) {}
+  }
+  lastTokenRenewalTs = Date.now();
+  programarRenovacionProactiva();
+}
+
+// =============================================================================
+// FLUJO DE RESPALDO PROPIO (OAuth implícito via popup mismo-origen)
+// =============================================================================
+// GIS entrega el token mediante window.opener.postMessage desde accounts.google.com.
+// Si Google corta la relación opener (COOP / nuevo "transform flow"), el token se
+// emite pero se pierde en silencio: ni callback ni error_callback se disparan.
+// Este flujo redirige el popup a NUESTRA página oauth_callback.html (mismo origen),
+// donde la entrega es inmune a COOP (postMessage mismo-origen + localStorage).
+// Requiere registrar la URI de redirección en Google Cloud Console.
+const OAUTH_CALLBACK_PAGE = 'oauth_callback.html';
+const OAUTH_REDIRECT_URI = location.origin + '/' + OAUTH_CALLBACK_PAGE;
+const LS_KEY_OAUTH_RESULTADO = 'cie_cent_oauth_resultado';
+const LS_KEY_ESTRATEGIA_TOKEN = 'cie_cent_estrategia_token';
+const MANUAL_TIMEOUT_INTERACTIVO_MS = 5 * 60 * 1000;
+const MANUAL_TIMEOUT_SILENTE_MS = 25 * 1000;
+let estrategiaToken = 'gis'; // 'gis' | 'manual'
+
+function cargarEstrategiaToken() {
+  try { estrategiaToken = localStorage.getItem(LS_KEY_ESTRATEGIA_TOKEN) || 'gis'; } catch (e) { estrategiaToken = 'gis'; }
+}
+
+function persistirEstrategiaToken(v) {
+  estrategiaToken = v;
+  try { localStorage.setItem(LS_KEY_ESTRATEGIA_TOKEN, v); } catch (e) {}
+}
+
+function _instruccionesRedirectUri() {
+  print('📋 Para habilitar el flujo de respaldo, registre esta URI de redirección en Google Cloud Console:');
+  print(`   ${OAUTH_REDIRECT_URI}`);
+  print('   Consola Cloud → APIs y servicios → Credenciales → Cliente OAuth 950842522264-… → "URI de redirección autorizadas" → Agregar URI → Guardar (demora unos minutos en aplicar).');
+}
+
+function construirUrlAuthImplicito(promptValor, state) {
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: OAUTH_REDIRECT_URI,
+    response_type: 'token',
+    scope: SCOPES,
+    include_granted_scopes: 'true',
+    state: state,
+  });
+  if (promptValor) params.set('prompt', promptValor);
+  const email = gisEmailCuenta || cargarEmailCuenta();
+  if (email) params.set('login_hint', email);
+  return 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+}
+
+function _esperarResultadoManual(state, popup, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let terminado = false;
+    let pollId = null;
+    let timeoutId = null;
+    const onMessage = (ev) => {
+      if (ev.origin !== location.origin) return;
+      try {
+        const data = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+        if (data && data.tipo === 'cie_oauth_resultado') procesar(data.res);
+      } catch (e) {}
+    };
+    const finalizar = (err, res) => {
+      if (terminado) return;
+      terminado = true;
+      if (pollId) clearInterval(pollId);
+      if (timeoutId) clearTimeout(timeoutId);
+      window.removeEventListener('message', onMessage);
+      try { localStorage.removeItem(LS_KEY_OAUTH_RESULTADO); } catch (e) {}
+      if (err) reject(err); else resolve(res);
+    };
+    const procesar = (res) => {
+      if (!res || res.state !== state) return; // resultado ajeno o de una corrida previa
+      if (res.error) {
+        const extra = res.error_description ? ` (${res.error_description})` : '';
+        finalizar(new Error(`OAuth ${res.error}${extra}`));
+      } else if (res.access_token) {
+        finalizar(null, res);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    pollId = setInterval(() => {
+      // Canal 1: postMessage mismo-origen (si la relación opener sigue viva).
+      // Canal 2: localStorage (funciona incluso si COOP cortó la relación opener).
+      try {
+        const raw = localStorage.getItem(LS_KEY_OAUTH_RESULTADO);
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (data && data.tipo === 'cie_oauth_resultado') procesar(data.res);
+        }
+      } catch (e) {}
+      let cerrado = false;
+      try { cerrado = !popup || popup.closed; } catch (e) { cerrado = false; }
+      if (cerrado && !terminado) {
+        // Margen breve por si el resultado llega justo al cerrarse la ventana.
+        setTimeout(() => { if (!terminado) finalizar(new Error('popup_cerrada_sin_resultado')); }, 700);
+      }
+    }, 300);
+    timeoutId = setTimeout(() => finalizar(new Error(`Flujo de respaldo sin respuesta tras ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
+  });
+}
+
+async function requestTokenManual({ interactive = false } = {}) {
+  const state = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  const url = construirUrlAuthImplicito(interactive ? '' : 'none', state);
+  const w = Math.min(500, screen.width - 40);
+  const h = Math.min(590, screen.height - 40);
+  const feats = `toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=no,resizable=no,copyhistory=no,width=${w},height=${h},top=${Math.round(screen.height / 2 - h / 2)},left=${Math.round(screen.width / 2 - w / 2)}`;
+  try { localStorage.removeItem(LS_KEY_OAUTH_RESULTADO); } catch (e) {}
+  const popup = window.open(url, 'cie_oauth_' + state, feats);
+  if (!popup) throw new Error('Pop-up bloqueada por el navegador para este sitio');
+  const timeoutMs = interactive ? MANUAL_TIMEOUT_INTERACTIVO_MS : MANUAL_TIMEOUT_SILENTE_MS;
+  try {
+    const res = await _esperarResultadoManual(state, popup, timeoutMs);
+    aplicarTokenRespuesta({
+      access_token: res.access_token,
+      expires_in: parseInt(res.expires_in, 10) || 3600,
+      scope: res.scope || SCOPES,
+    });
+    return res;
+  } catch (e) {
+    if (String(e.message) === 'popup_cerrada_sin_resultado') {
+      e.message = 'La ventana de Google se cerró sin entregar el token';
+      if (interactive) _instruccionesRedirectUri();
+    } else if (/redirect_uri_mismatch/.test(String(e.message))) {
+      _instruccionesRedirectUri();
+    }
+    throw e;
+  } finally {
+    try { popup.close(); } catch (e2) {}
+  }
+}
+
+function _esFalloDeEntregaGis(err) {
+  const m = String((err && (err.message || err.type)) || err || '').toLowerCase();
+  if (m.includes('popup_failed_to_open')) return false;    // pop-ups bloqueadas: el respaldo fallaría igual
+  if (m.includes('access_denied') || m.includes('consent_denied')) return false; // el usuario rechazó
+  return true; // timeout sin respuesta, popup_closed, etc. → entrega rota: probar respaldo
+}
+
+async function _requestTokenConEstrategia(interactive) {
+  if (estrategiaToken === 'manual') {
+    try {
+      return await requestTokenManual({ interactive });
+    } catch (e) {
+      const m = String(e.message || '');
+      if (m.includes('OAuth redirect_uri_mismatch') || m.includes('Pop-up bloqueada')) {
+        // El respaldo dejó de estar disponible: volver a GIS.
+        persistirEstrategiaToken('gis');
+        print('⚠️ Flujo de respaldo no disponible. Volviendo al flujo GIS de Google.');
+      }
+      throw e;
+    }
+  }
+  try {
+    return await _requestTokenInner(interactive);
+  } catch (err) {
+    if (_esFalloDeEntregaGis(err)) {
+      print('⚠️ Google (GIS) no entregó el token — probando flujo de respaldo propio (ventana mismo-origen)...');
+      try {
+        const res = await requestTokenManual({ interactive });
+        persistirEstrategiaToken('manual');
+        print('✅ Token obtenido con flujo de respaldo. Se usará preferentemente en adelante.');
+        logApiTrace('token_via_respaldo').catch(() => {});
+        return res;
+      } catch (e2) {
+        print('❌ El flujo de respaldo también falló: ' + (e2.message || String(e2)));
+        throw e2;
+      }
+    }
+    throw err;
+  }
+}
+
 function requestToken(interactive) {
-  const run = _tokenRequestChain.then(() => _requestTokenInner(interactive));
+  const run = _tokenRequestChain.then(() => _requestTokenConEstrategia(interactive));
   _tokenRequestChain = run.catch(() => {});
   return run;
 }
@@ -413,16 +599,7 @@ function _requestTokenInner(interactive) {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
-      accessToken = resp.access_token;
-      tokenExpiresAt = Date.now() + (resp.expires_in * 1000) - 60000;
-      try { sessionStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify({ accessToken, tokenExpiresAt })); } catch (e) {}
-      guardarTokenPersistente();
-      if (resp.login_hint) {
-        gisEmailCuenta = resp.login_hint;
-        try { localStorage.setItem(GIS_EMAIL_LS_KEY, gisEmailCuenta); } catch (e) {}
-      }
-      lastTokenRenewalTs = Date.now();
-      programarRenovacionProactiva();
+      aplicarTokenRespuesta(resp);
       resolve(resp);
     };
     _asegurarTokenClientConHint().then(() => {
@@ -3205,6 +3382,8 @@ async function init() {
     });
   }
   await initGis();
+  cargarEstrategiaToken();
+  if (estrategiaToken === 'manual') print('🔁 Usando flujo de token de respaldo (propio) según la última sesión exitosa.');
 
   let delayGuardado = null;
   try { delayGuardado = localStorage.getItem(LS_KEYS.API_DELAY); } catch (e) {}
@@ -3224,7 +3403,7 @@ async function init() {
   poblarDropdownRegiones();
   refrescarBarraProgreso();
   refrescarIndicadorBatchPendiente();
-  print('📖 Guía desatendido: (1) pestaña propia y visible, (2) pop-ups permitidas para este sitio, (3) equipo sin suspensión automática, (4) al conectar se prueba la renovación (canaria).');
+  print('📖 Guía desatendido: (1) pestaña propia y visible, (2) pop-ups permitidas para este sitio, (3) equipo sin suspensión automática, (4) al conectar se prueba la renovación (canaria), (5) si Google (GIS) no entrega el token, se intenta automáticamente un flujo de respaldo propio.');
 
   const stored = sessionStorage.getItem(TOKEN_STORAGE_KEY);
   if (stored) {

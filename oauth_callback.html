@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="googlebot" content="noindex, nofollow">
+<link rel="icon" href="data:,">
+<title>Conexión Google CIE</title>
+<style>
+body { font-family: 'Segoe UI', system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafbfc; color: #1f2937; }
+.caja { text-align: center; padding: 24px; border: 1px solid #e8eaed; border-radius: 12px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.05); max-width: 460px; margin: 16px; }
+code { background: #f1f5f9; padding: 2px 6px; border-radius: 6px; font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="caja">
+  <h3 style="margin:0 0 8px;">🔐 Conexión Google CIE</h3>
+  <p id="detalle" style="margin:0;">Procesando resultado de la autorización…</p>
+  <p style="margin:12px 0 0; font-size:12px; color:#6b7280;">Esta ventana debería cerrarse sola. Si no lo hace, puede cerrarla manualmente.</p>
+</div>
+<script>
+(function () {
+  var MENSAJES_ERROR = {
+    access_denied: 'Autorización denegada. Vuelva a la página principal e intente de nuevo.',
+    redirect_uri_mismatch: 'La URI de redirección de esta página no está registrada en Google Cloud Console (Credenciales → Cliente OAuth → URI de redirección autorizadas).',
+    interaction_required: 'Se requiere interacción: no hay sesión activa de Google en este navegador.',
+    login_required: 'Se requiere iniciar sesión en Google.',
+    invalid_request: 'Solicitud OAuth inválida.',
+    invalid_client: 'El cliente OAuth no está autorizado para este flujo.'
+  };
+  function cerrarVentana() {
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 400);
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 2000);
+  }
+  try {
+    var params = new URLSearchParams(location.hash.substring(1));
+    var res = {};
+    ['access_token', 'expires_in', 'scope', 'state', 'error', 'error_description', 'token_type'].forEach(function (k) {
+      if (params.has(k)) res[k] = params.get(k);
+    });
+    var payload = JSON.stringify({ tipo: 'cie_oauth_resultado', ts: Date.now(), res: res });
+    // Canal 1: localStorage mismo-origen (leído por la página principal).
+    try { localStorage.setItem('cie_cent_oauth_resultado', payload); } catch (e) {}
+    // Canal 2: postMessage al opener (si la relación opener sigue viva).
+    try {
+      if (window.opener && !window.opener.closed) window.opener.postMessage(payload, location.origin);
+    } catch (e) {}
+    // Limpiar el token de la URL (no debe quedar en historial).
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    var d = document.getElementById('detalle');
+    if (res.error) {
+      d.textContent = MENSAJES_ERROR[res.error] || ('Error de autorización: ' + res.error + (res.error_description ? ' — ' + res.error_description : ''));
+    } else if (res.access_token) {
+      d.textContent = '✅ Autorización recibida. Volviendo a la página principal…';
+    } else {
+      d.textContent = '⚠️ La respuesta llegó sin token ni error. Cierre esta ventana y reintente desde la página principal.';
+    }
+  } catch (e) {
+    try { document.getElementById('detalle').textContent = '⚠️ Error procesando el resultado: ' + e; } catch (e2) {}
+  }
+  cerrarVentana();
+})();
+</script>
+</body>
+</html>
